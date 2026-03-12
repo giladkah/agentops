@@ -1,0 +1,3272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentOps</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#08080d;--bg2:#0e0e16;--bg3:#13131a;--bg4:#1a1a24;--border:#1e1e28;--border2:#2a2a35;--text:#e0e0e0;--text2:#999;--text3:#666;--text4:#444;--green:#c4f34a;--blue:#60a5fa;--orange:#fb923c;--pink:#f472b6;--red:#f87171;--purple:#a78bfa;--green-bg:#c4f34a15;--blue-bg:#60a5fa15;--orange-bg:#fb923c15;--pink-bg:#f472b615;--red-bg:#f8717115;--purple-bg:#a78bfa15}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+.app{display:flex;height:100vh}
+
+/* Sidebar */
+.sidebar{width:250px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-header{padding:14px 18px;border-bottom:1px solid var(--border)}
+.sidebar-header .logo{font-size:15px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px}
+.sidebar-header .logo span{color:var(--green)}
+.sidebar-nav{padding:10px 8px;flex:1;overflow-y:auto}
+.nav-section{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text4);padding:12px 12px 6px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:6px;font-size:13px;color:var(--text2);cursor:pointer;transition:all .15s;margin-bottom:1px}
+.nav-item:hover{background:var(--bg3);color:var(--text)}
+.nav-item.active{background:var(--green-bg);color:var(--green)}
+.nav-item .icon{font-size:15px;width:20px;text-align:center}
+.nav-item .badge{margin-left:auto;font-size:10px;padding:2px 6px;border-radius:8px;background:var(--green-bg);color:var(--green);font-weight:600}
+.sidebar-footer{padding:10px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)}
+.cost-row-sb{display:flex;justify-content:space-between;padding:2px 0}
+.cost-row-sb .amount{color:var(--green);font-weight:600;font-family:'SF Mono',monospace}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{height:48px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;flex-shrink:0}
+.topbar .page-title{font-size:14px;font-weight:600;color:#fff}
+.topbar-right{display:flex;gap:6px}
+.content{flex:1;overflow-y:auto;padding:20px}
+
+/* Buttons */
+.btn{padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);transition:all .15s;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+.btn:hover{border-color:#555;color:#fff}
+.btn-primary{background:var(--green);color:var(--bg);border-color:var(--green);font-weight:600}
+.btn-primary:hover{background:#d4ff5a}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn-danger{border-color:var(--red);color:var(--red)}
+.btn-danger:hover{background:var(--red-bg)}
+
+/* Views */
+.view{display:none}.view.active{display:block}
+
+/* Pipeline bar */
+.pipeline-bar{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px}
+.p-stage{flex:1;text-align:center;position:relative}
+.p-stage::after{content:'→';position:absolute;right:-6px;top:50%;transform:translateY(-50%);color:var(--text4);font-size:12px}
+.p-stage:last-child::after{display:none}
+.p-stage .dot{width:7px;height:7px;border-radius:50%;background:var(--text4);display:inline-block;margin-bottom:3px}
+.p-stage .label{font-size:10px;color:var(--text3)}
+.p-stage.done .dot{background:var(--green)}.p-stage.done .label{color:var(--green)}
+.p-stage.active .dot{background:var(--blue);animation:blink 1.5s infinite}.p-stage.active .label{color:var(--blue);font-weight:600}
+@keyframes blink{50%{opacity:.4}}
+.p-stage.approval .dot{background:var(--orange);animation:blink 1.5s infinite}.p-stage.approval .label{color:var(--orange);font-weight:600}
+
+/* Agent cards */
+.agents-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:16px}
+.agent-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;transition:border-color .2s}
+.agent-card:hover{border-color:var(--border2)}
+.agent-card .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.agent-card .a-name{font-size:13px;font-weight:600;color:#fff}
+.agent-card .persona-tag{font-size:10px;padding:2px 7px;border-radius:8px;margin-top:3px;display:inline-block}
+.pt-engineer{background:var(--blue-bg);color:var(--blue);border:1px solid #60a5fa33}
+.pt-reviewer{background:var(--orange-bg);color:var(--orange);border:1px solid #fb923c33}
+.pt-security{background:var(--pink-bg);color:var(--pink);border:1px solid #f472b633}
+.pt-qa{background:var(--purple-bg);color:var(--purple);border:1px solid #a78bfa33}
+.pt-planner{background:var(--green-bg);color:var(--green);border:1px solid #c4f34a33}
+.pt-architect-reviewer{background:#06b6d415;color:#22d3ee;border:1px solid #22d3ee33}
+.pt-consensus{background:var(--green-bg);color:var(--green);border:1px solid #c4f34a33}
+.status-badge{font-size:9px;padding:3px 7px;border-radius:8px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.s-running{background:var(--blue-bg);color:var(--blue);border:1px solid #60a5fa33}
+.s-done{background:var(--green-bg);color:var(--green);border:1px solid #c4f34a33}
+.s-waiting{background:#33333322;color:var(--text4);border:1px solid #33333344}
+.s-needs_approval{background:var(--orange-bg);color:var(--orange);border:1px solid #fb923c33}
+.s-converged{background:var(--green-bg);color:var(--green);border:1px solid #c4f34a33}
+.s-failed{background:var(--red-bg);color:var(--red);border:1px solid #f8717133}
+.s-merged{background:var(--green-bg);color:var(--green);border:1px solid #c4f34a33}
+.s-pending{background:#33333322;color:var(--text4);border:1px solid #33333344}
+.agent-card .task{font-size:11px;color:var(--text2);line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.agent-card .meta{display:flex;gap:10px;font-size:10px;color:var(--text3);flex-wrap:wrap}
+.model-tag{padding:1px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-size:9px;background:var(--bg);border:1px solid var(--border)}
+.agent-card .prog{height:2px;background:var(--border);border-radius:1px;overflow:hidden;margin-top:8px}
+.agent-card .prog-fill{height:100%;border-radius:1px;transition:width .8s}
+.pf-blue{background:var(--blue)}.pf-green{background:var(--green)}.pf-orange{background:var(--orange)}
+
+/* Running animation */
+@keyframes agentPulse{0%,100%{opacity:1}50%{opacity:.5}}
+.agent-card.is-running{border-color:var(--blue)44}
+.agent-card.is-running .prog-fill{animation:agentPulse 2s ease-in-out infinite}
+.agent-card .expand-btn{display:none;margin-top:8px}
+.agent-card.expandable .expand-btn{display:block}
+
+/* Agent detail panel (inline expand) */
+.agent-detail{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:11px}
+.agent-card.expanded .agent-detail{display:block}
+.agent-detail .ad-row{display:flex;justify-content:space-between;padding:3px 0;color:var(--text2)}
+.agent-detail .ad-label{color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+.agent-detail .ad-val{color:var(--text);font-family:'SF Mono',monospace;font-size:11px}
+.agent-detail .ad-output{margin-top:8px;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-family:'SF Mono',monospace;font-size:10px;color:var(--text2);line-height:1.5;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.agent-detail .ad-timeline{margin-top:8px}
+.agent-detail .ad-step{display:flex;gap:8px;align-items:flex-start;padding:3px 0}
+.agent-detail .ad-step .ad-dot{width:8px;height:8px;border-radius:50%;margin-top:2px;flex-shrink:0}
+.agent-detail .ad-step .ad-text{color:var(--text2);font-size:10px;line-height:1.4}
+
+/* Convergence */
+.conv-panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px}
+.conv-panel .title{font-size:13px;font-weight:600;color:#fff;margin-bottom:10px}
+.round-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.round-chip{padding:4px 10px;border-radius:6px;font-size:11px;background:var(--bg);border:1px solid var(--border);color:var(--text2)}
+.round-chip.current{border-color:var(--blue);color:var(--blue)}
+.round-chip .issues{font-family:'SF Mono',monospace;font-weight:600;margin-left:4px}
+.round-chip .issues.zero{color:var(--green)}
+.conv-bars{display:flex;align-items:flex-end;gap:6px;height:60px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.conv-bar{flex:1;border-radius:2px 2px 0 0;position:relative;min-height:3px;text-align:center}
+.conv-bar .val{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:10px;font-family:'SF Mono',monospace;font-weight:600}
+.conv-meta{font-size:11px;color:var(--text2);display:flex;justify-content:space-between}
+
+/* Checkpoint */
+.checkpoint{background:linear-gradient(135deg,#1a1a12,#181810);border:1px solid #c4f34a33;border-radius:8px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:14px}
+.checkpoint .beacon{width:36px;height:36px;border-radius:50%;background:var(--green-bg);border:2px solid var(--green);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;animation:pulse-g 2s infinite}
+@keyframes pulse-g{0%,100%{box-shadow:0 0 0 0 #c4f34a44}50%{box-shadow:0 0 0 8px #c4f34a00}}
+@keyframes progPulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes slideIn{from{transform:translateX(100px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes investigatePulse{0%,100%{border-color:var(--orange)44}50%{border-color:var(--orange)}}
+.checkpoint .cp-body{flex:1}
+.checkpoint .cp-title{font-size:12px;font-weight:600;color:var(--green);margin-bottom:2px}
+.checkpoint .cp-desc{font-size:11px;color:var(--text2)}
+.checkpoint .cp-actions{display:flex;gap:6px;flex-shrink:0}
+
+/* Log stream */
+.log-stream{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:'SF Mono','Fira Code',monospace;font-size:10px;line-height:1.7;color:var(--text3);max-height:180px;overflow-y:auto}
+.log-stream .l-time{color:var(--text4)}.log-stream .l-info{color:var(--blue)}.log-stream .l-success{color:var(--green)}.log-stream .l-warning{color:var(--orange)}.log-stream .l-error{color:var(--red)}
+.log-stream .l-agent{color:var(--text2);font-weight:600}
+
+/* Workflow cards */
+.wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.wf-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;cursor:pointer;transition:all .2s}
+.wf-card:hover{border-color:var(--green);transform:translateY(-1px)}
+.wf-card .wf-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:4px}
+.wf-card .wf-desc{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px}
+.wf-card .wf-agents{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.wf-card .wf-meta{font-size:10px;color:var(--text3);display:flex;gap:12px}
+
+/* Persona cards */
+.persona-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:10px}
+.persona-card .pc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.persona-card .pc-name{font-size:15px;font-weight:600;color:#fff}
+.persona-card .pc-desc{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px}
+.persona-card .traits{display:flex;gap:5px;flex-wrap:wrap}
+.trait{font-size:10px;padding:3px 7px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text3)}
+
+/* Cost view */
+.cost-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+@media(max-width:800px){.cost-grid{grid-template-columns:1fr 1fr}}
+.cost-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.cost-card .c-label{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:3px}
+.cost-card .c-value{font-size:18px;font-weight:700;font-family:'SF Mono',monospace;color:#fff}
+.cost-card .c-sub{font-size:9px;color:var(--text3);margin-top:2px}
+.cost-table{width:100%;font-size:12px;border-collapse:collapse}
+.cost-table th{text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--text2);font-weight:600;font-size:11px}
+.cost-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text3)}
+.cost-table .cost-val{font-family:'SF Mono',monospace;color:var(--green);font-weight:600}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:#000a;z-index:100;display:none;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:540px;max-height:85vh;overflow-y:auto;padding:24px}
+.modal h3{font-size:16px;color:#fff;margin-bottom:14px}
+.modal label{display:block;font-size:11px;color:var(--text2);margin-bottom:4px;margin-top:12px}
+.modal select,.modal input,.modal textarea{width:100%;padding:7px 10px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:12px}
+.modal textarea{min-height:70px;resize:vertical}
+.modal select:focus,.modal input:focus,.modal textarea:focus{outline:none;border-color:var(--green)}
+.modal-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:16px}
+.agent-config-block{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px}
+.ac-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ac-title{font-size:12px;font-weight:600;color:#fff}
+.ac-row{display:flex;gap:8px;margin-bottom:6px;align-items:end}
+.ac-row>div{flex:1}
+.ac-row label{margin-top:0!important}
+.ac-remove{color:var(--red);cursor:pointer;font-size:14px;padding:4px;flex:0}
+
+/* Empty state */
+.empty{text-align:center;padding:48px 20px;color:var(--text3)}
+.empty .icon{font-size:40px;margin-bottom:10px}
+.empty .title{font-size:14px;color:var(--text2)}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* Ensemble Tabs */
+.ens-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto}
+.ens-tab{padding:8px 16px;font-size:12px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;display:flex;align-items:center;gap:6px}
+.ens-tab:hover{color:var(--text);background:var(--bg3)}
+.ens-tab.active{color:var(--green);border-bottom-color:var(--green);font-weight:600}
+.ens-tab .tab-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.ens-tab .tab-dot.running{background:var(--blue);animation:blink 1.5s infinite}
+.ens-tab .tab-dot.done{background:var(--green)}
+.ens-tab .tab-dot.failed{background:var(--red,#ff4444)}
+.ens-tab .tab-dot.pending{background:var(--text4)}
+.ens-tab-panel{display:none}
+.ens-tab-panel.active{display:block}
+.num-run-btn{min-width:70px;text-align:center;font-size:11px}
+.num-run-btn.active{background:var(--green)!important;color:#000!important;font-weight:700}
+
+/* Live Stream Panel */
+.live-stream{margin-top:8px;border:1px solid var(--blue)44;border-radius:8px;overflow:hidden;background:var(--bg)}
+.live-stream .ls-header{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--blue)11;border-bottom:1px solid var(--blue)22;font-size:10px;color:var(--blue)}
+.live-stream .ls-header .ls-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1s infinite}
+.live-stream .ls-tools{display:flex;gap:4px;flex-wrap:wrap;padding:6px 10px;border-bottom:1px solid var(--border);min-height:20px}
+.ls-tool{padding:2px 8px;border-radius:4px;font-size:9px;font-family:'SF Mono',monospace;background:var(--bg2);border:1px solid var(--border);color:var(--text2);display:inline-flex;align-items:center;gap:4px}
+.ls-tool.active{border-color:var(--blue)88;color:var(--blue);animation:agentPulse 1.5s infinite}
+.ls-tool.ok{border-color:var(--green)88;color:var(--green)}
+.ls-tool.err{border-color:var(--red,#ff4444)88;color:var(--red,#ff4444)}
+.live-stream .ls-output{padding:8px 10px;font-family:'SF Mono',monospace;font-size:10px;line-height:1.5;color:var(--text2);max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.live-stream .ls-stats{display:flex;gap:12px;padding:6px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)}
+.live-stream .ls-stats span{font-family:'SF Mono',monospace}
+.ls-icon{font-size:11px}
+
+/* ═══ SIGNALS VIEW ═══ */
+.sig-layout{display:flex;height:calc(100vh - 100px);margin:-20px;overflow:hidden}
+.sig-feed{width:340px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;background:var(--bg2)}
+.sig-feed-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;position:sticky;top:0;background:var(--bg2);z-index:5}
+.sig-feed-header h3{font-size:13px;font-weight:600;color:#fff}
+.sig-feed-count{font-size:9px;font-family:'SF Mono',monospace;font-weight:700;background:var(--orange-bg);color:var(--orange);padding:2px 6px;border-radius:8px}
+.sig-feed-new{margin-left:auto;background:var(--green);color:#000;border:none;border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit}
+.sig-filters{display:flex;gap:3px;padding:8px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.sig-filter{font-size:9px;padding:3px 8px;border-radius:4px;cursor:pointer;color:var(--text3);background:transparent;border:1px solid transparent;font-weight:600;transition:all .12s;font-family:inherit}
+.sig-filter:hover{color:var(--text2);background:var(--bg3)}
+.sig-filter.active{color:var(--text);background:var(--bg4);border-color:var(--border2)}
+.sig-item{padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:all .12s}
+.sig-item:hover{background:var(--bg3)}
+.sig-item.active{background:var(--bg4);border-left:3px solid var(--green)}
+.sig-item .si-top{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.sig-item .si-src{font-size:8px;padding:2px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-weight:700}
+.sig-item .si-severity{font-size:8px;font-weight:700;font-family:'SF Mono',monospace;padding:1px 4px;border-radius:2px}
+.sig-item .si-time{font-size:9px;color:var(--text4);margin-left:auto;font-family:'SF Mono',monospace}
+.sig-item .si-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px;line-height:1.3}
+.sig-item .si-summary{font-size:10px;color:var(--text3);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sig-item .si-status{display:inline-block;font-size:8px;padding:1px 5px;border-radius:3px;font-weight:600;margin-top:4px;font-family:'SF Mono',monospace}
+.src-sentry{background:var(--red-bg);color:var(--red)}
+.src-shortcut{background:var(--blue-bg);color:var(--blue)}
+.src-github{background:var(--purple-bg);color:var(--purple)}
+.src-manual{background:var(--green-bg);color:var(--green)}
+.src-scan{background:#22d3ee15;color:#22d3ee}
+.sev-critical{background:var(--red-bg);color:var(--red)}
+.sev-high{background:var(--orange-bg);color:var(--orange)}
+.sev-medium{background:var(--blue-bg);color:var(--blue)}
+.sev-low{background:#33333344;color:var(--text3)}
+.st-new{background:var(--orange-bg);color:var(--orange)}
+.st-triaging{background:var(--blue-bg);color:var(--blue)}
+.st-investigating{background:var(--blue-bg);color:var(--blue)}
+.st-investigated{background:var(--green-bg);color:var(--green)}
+.st-ready{background:var(--green-bg);color:var(--green)}
+.st-running{background:var(--blue-bg);color:var(--blue)}
+.st-done{background:var(--green-bg);color:var(--green)}
+.st-skipped{background:#33333344;color:var(--text3)}
+
+/* Chat panel */
+.sig-chat{flex:1;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.sig-chat-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text4);gap:8px}
+.sig-chat-empty .ce-icon{font-size:40px;opacity:.3}
+.sig-chat-empty .ce-text{font-size:13px}
+.sig-chat-header{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg2);flex-shrink:0}
+.sig-chat-header .ch-title{font-size:13px;font-weight:600;flex:1}
+.sig-chat-header .ch-actions{display:flex;gap:6px}
+.sig-msgs{flex:1;overflow-y:auto;padding:16px 20px}
+.sig-msg{margin-bottom:14px;display:flex;gap:8px}
+.sig-msg.msg-human{flex-direction:row-reverse}
+.sig-msg .msg-av{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.sig-msg.msg-ai .msg-av{background:var(--bg3);border:1px solid var(--border)}
+.sig-msg.msg-human .msg-av{background:var(--green-bg);border:1px solid #c4f34a22}
+.sig-msg .msg-body{max-width:75%}
+.sig-msg .msg-txt{padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.sig-msg.msg-ai .msg-txt{background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-top-left-radius:2px}
+.sig-msg.msg-human .msg-txt{background:var(--green-bg);border:1px solid #c4f34a22;color:var(--text);border-top-right-radius:2px}
+.sig-msg .msg-txt code{font-family:'SF Mono',monospace;font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;color:#22d3ee}
+.sig-msg .msg-txt strong{color:var(--text);font-weight:600}
+.sig-msg .msg-time{font-size:8px;color:var(--text4);margin-top:3px;font-family:'SF Mono',monospace}
+.sig-msg.msg-human .msg-time{text-align:right}
+.sig-msg .msg-tools{margin-top:6px;display:flex;gap:4px;flex-wrap:wrap}
+.sig-msg .tool-badge{font-size:8px;padding:2px 6px;border-radius:3px;font-family:'SF Mono',monospace;background:var(--bg);border:1px solid var(--border);color:var(--text3)}
+
+/* Run proposal card */
+.run-proposal{background:var(--bg);border:1px solid #c4f34a44;border-radius:8px;padding:12px;margin-top:8px}
+.run-proposal .rp-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.run-proposal .rp-title{font-size:12px;font-weight:700;color:var(--green)}
+.run-proposal .rp-wf{font-size:9px;padding:2px 6px;border-radius:3px;font-family:'SF Mono',monospace;background:var(--green-bg);color:var(--green);font-weight:600}
+.run-proposal .rp-desc{font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:8px;max-height:120px;overflow-y:auto}
+.run-proposal .rp-actions{display:flex;gap:6px}
+.run-proposal .rp-btn{font-size:10px;padding:5px 12px;border-radius:5px;cursor:pointer;font-weight:600;border:none;font-family:inherit;transition:all .12s}
+.rp-btn-go{background:var(--green);color:#000}
+.rp-btn-go:hover{filter:brightness(1.1)}
+.rp-btn-alt{background:var(--bg3);color:var(--text2);border:1px solid var(--border)!important}
+
+/* Chat input */
+.sig-input{padding:12px 20px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.sig-input-row{display:flex;gap:6px}
+.sig-input textarea{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-family:inherit;font-size:12px;outline:none;resize:none;min-height:36px;max-height:120px}
+.sig-input textarea:focus{border-color:var(--green)55}
+.sig-input textarea::placeholder{color:var(--text4)}
+.sig-input .send-btn{background:var(--green);color:#000;border:none;border-radius:6px;padding:0 14px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
+.sig-input .send-btn:disabled{opacity:.4;cursor:default}
+.sig-input .triage-btn{background:var(--bg3);color:var(--blue);border:1px solid var(--blue)33;border-radius:6px;padding:0 12px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit}
+.sig-input .triage-btn:hover{background:var(--blue-bg)}
+.sig-loading{display:none;align-items:center;gap:6px;padding:8px 0;font-size:11px;color:var(--blue)}
+.sig-loading.show{display:flex}
+.sig-loading .ld-dot{width:6px;height:6px;border-radius:3px;background:var(--blue);animation:blink 1s infinite}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">🤖 Agent<span>Ops</span></div>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-section">Pipeline</div>
+      <div class="nav-item" onclick="switchView('signals',this)">
+        <span class="icon">📋</span> Tasks
+        <span class="badge" id="signals-badge" style="background:var(--orange)22;color:var(--orange)">0</span>
+      </div>
+      <div class="nav-item active" onclick="switchView('runs',this)">
+        <span class="icon">⚡</span> Runs
+        <span class="badge" id="active-badge">0</span>
+      </div>
+      <div class="nav-item" onclick="switchView('workflows',this)">
+        <span class="icon">📋</span> Workflows
+      </div>
+      <div class="nav-section">Configuration</div>
+      <div class="nav-item" onclick="switchView('integrations',this)">
+        <span class="icon">🔗</span> Integrations
+        <span class="badge" id="integrations-badge" style="background:var(--purple-bg);color:var(--purple);display:none">0</span>
+      </div>
+      <div class="nav-item" onclick="switchView('personas',this)">
+        <span class="icon">🎭</span> Personas
+      </div>
+      <div class="nav-item" onclick="switchView('costs',this)">
+        <span class="icon">💰</span> Cost Tracker
+      </div>
+      <div class="nav-item" onclick="switchView('settings',this)">
+        <span class="icon">⚙️</span> Settings
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="cost-row-sb"><span>Active agents</span><span class="amount" id="sb-active">0</span></div>
+      <div class="cost-row-sb"><span>Session cost</span><span class="amount" id="sb-cost">$0.00</span></div>
+      <div id="sb-mode" style="text-align:center;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+        <span style="font-size:10px;padding:2px 8px;border-radius:4px;background:var(--blue)22;color:var(--blue);font-family:'SF Mono',monospace">⚡ API MODE</span>
+      </div>
+      <div style="text-align:center;font-size:9px;color:var(--text4);margin-top:6px">AgentOps v0.3.1</div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div class="page-title" id="page-title">Runs</div>
+      <div class="topbar-right">
+        <button class="btn btn-sm btn-danger" onclick="clearAllRuns()">🗑 Clear All</button>
+        <button class="btn" onclick="openDebug()">🐛 Debug</button>
+        <button class="btn" onclick="refreshData()">↻ Refresh</button>
+        <button class="btn btn-primary" onclick="showLaunchModal()">+ New Run</button>
+      </div>
+    </div>
+    <div class="content" id="content">
+
+      <!-- ═══ SIGNALS VIEW ═══ -->
+      <div class="view" id="view-signals">
+        <div class="sig-layout">
+          <!-- Signal Feed -->
+          <div class="sig-feed">
+            <div class="sig-feed-header">
+              <h3>📋 Tasks</h3>
+              <span class="sig-feed-count" id="sig-count">0</span>
+              <button class="sig-feed-new" onclick="showNewSignalModal()">+ New</button>
+            </div>
+            <div class="sig-filters">
+              <div class="sig-filter active" onclick="filterSigs('all',this)">All</div>
+              <div class="sig-filter" onclick="filterSigs('sentry',this)">🐛 Sentry</div>
+              <div class="sig-filter" onclick="filterSigs('shortcut',this)">🎯 Shortcut</div>
+              <div class="sig-filter" onclick="filterSigs('github',this)">🔗 GitHub</div>
+              <div class="sig-filter" onclick="filterSigs('manual',this)">✏️ Manual</div>
+            </div>
+            <div id="sig-list"></div>
+          </div>
+
+          <!-- Chat Panel -->
+          <div class="sig-chat" id="sig-chat">
+            <div class="sig-chat-empty" id="sig-chat-empty">
+              <div class="ce-icon">💬</div>
+              <div class="ce-text">Select a signal to start a conversation</div>
+              <div style="font-size:10px;color:var(--text4)">The AI will analyze it and help you decide what to do</div>
+            </div>
+            <div id="sig-chat-active" style="display:none;flex-direction:column;height:100%;">
+              <div class="sig-chat-header">
+                <span id="sig-chat-icon">🐛</span>
+                <span class="ch-title" id="sig-chat-title">Task</span>
+                <span id="sig-chat-source" class="si-src" style="font-size:9px;"></span>
+                <span id="sig-chat-severity" class="si-severity" style="font-size:9px;"></span>
+                <div class="ch-actions">
+                  <span id="sig-chat-mode" style="font-size:8px;padding:2px 6px;border-radius:3px;font-family:'SF Mono',monospace;font-weight:600"></span>
+                  <button class="btn btn-sm" onclick="skipSignal()" title="Skip this task">⏭ Skip</button>
+                </div>
+              </div>
+              <div class="sig-msgs" id="sig-msgs"></div>
+              <div class="sig-loading" id="sig-loading">
+                <span class="ld-dot"></span> AI is investigating...
+              </div>
+              <div class="sig-input">
+                <div class="sig-input-row">
+                  <textarea id="sig-input-text" placeholder="Add context, ask questions, or type anything..." rows="1"
+                    oninput="updateInvestigateBtn()"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();investigate()}"></textarea>
+                  <button class="triage-btn" onclick="investigate()" id="sig-investigate-btn" title="AI investigates the task">🔍 Investigate</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ RUNS VIEW (unified — single runs + ensembles) ═══ -->
+      <div class="view active" id="view-runs">
+        <div id="runs-container">
+          <div class="empty"><div class="icon">⚡</div><div class="title">No active runs. Click "+ New Run" to start.</div></div>
+        </div>
+        <!-- Ensemble detail renders here when an ensemble is clicked -->
+        <div id="ensemble-detail-container" style="display:none"></div>
+      </div>
+
+      <!-- ═══ WORKFLOWS VIEW ═══ -->
+      <div class="view" id="view-workflows">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:16px;font-weight:600;color:#fff">Workflows</div>
+        </div>
+        <div class="wf-grid" id="workflows-grid"></div>
+      </div>
+
+      <!-- ═══ PERSONAS VIEW ═══ -->
+      <div class="view" id="view-personas">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:16px;font-weight:600;color:#fff">Agent Personas</div>
+        </div>
+        <div id="personas-list"></div>
+      </div>
+
+      <!-- ═══ COSTS VIEW ═══ -->
+      <div class="view" id="view-costs">
+        <div style="font-size:16px;font-weight:600;color:#fff;margin-bottom:14px">Cost Tracker</div>
+        <div class="cost-grid" id="cost-cards"></div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px">Run History</div>
+          <table class="cost-table" id="cost-table">
+            <thead><tr><th>Run</th><th>Workflow</th><th>Agents</th><th>Duration</th><th>Cost</th></tr></thead>
+            <tbody id="cost-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Integrations View -->
+      <div class="view" id="view-integrations">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div>
+            <div style="font-size:16px;font-weight:600;color:#fff">🔗 Integrations</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">Connect external tools to automatically feed signals into your pipeline.</div>
+          </div>
+        </div>
+        <div id="integrations-content" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:900px">
+        </div>
+      </div>
+
+      <!-- Settings View -->
+      <div class="view" id="view-settings">
+        <div style="font-size:16px;font-weight:600;color:#fff;margin-bottom:14px">⚙️ Settings</div>
+        <div id="settings-content" style="max-width:700px">
+          <div style="color:var(--text3);font-size:12px">Loading settings...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Launch Modal -->
+<div class="modal-overlay" id="launch-modal" onclick="if(event.target===this)hideLaunchModal()">
+  <div class="modal">
+    <h3>🚀 Launch New Run</h3>
+    <label>Workflow</label>
+    <select id="m-workflow" onchange="onWorkflowChange()"></select>
+    <label>Title</label>
+    <input id="m-title" placeholder="e.g. Cleanup LPN module" />
+    <label>Task Description</label>
+    <textarea id="m-task" placeholder="What should the agents work on?"></textarea>
+    <label>Target Branch (for PR)</label>
+    <input id="m-branch" placeholder="auto-generated if empty" />
+
+    <label>Base Branch (PR merges into)</label>
+    <input id="m-base-branch" value="main" placeholder="main" />
+
+    <label>Approval Mode</label>
+    <select id="m-approve-mode">
+      <option value="manual">🛑 Manual — pause at every checkpoint (recommended)</option>
+      <option value="auto">🟢 Autopilot — run start to finish, no pauses</option>
+    </select>
+
+    <label>Parallel Runs</label>
+    <div id="m-num-runs-row" style="display:flex;gap:6px;margin-bottom:8px">
+      <button class="btn btn-sm num-run-btn active" onclick="setNumRuns(1)" data-n="1">1× Single</button>
+      <button class="btn btn-sm num-run-btn" onclick="setNumRuns(2)" data-n="2">2× Parallel</button>
+      <button class="btn btn-sm num-run-btn" onclick="setNumRuns(3)" data-n="3">3× Parallel</button>
+      <button class="btn btn-sm num-run-btn" onclick="setNumRuns(4)" data-n="4">4× Parallel</button>
+    </div>
+    <div id="m-ensemble-info" style="display:none;font-size:11px;color:var(--text2);padding:8px 10px;background:linear-gradient(135deg,#1a1a12,#181810);border:1px solid #c4f34a33;border-radius:6px;margin-bottom:8px">
+      🎯 <strong>Ensemble Mode:</strong> Same task runs <span id="m-n-label">2</span>× independently in parallel.
+      A consensus agent then picks the best approach. <strong style="color:var(--green)">Great for high-stakes changes.</strong>
+      <div id="m-individual-prs-row" style="margin-top:6px;display:flex;align-items:center;gap:8px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
+          <input type="checkbox" id="m-individual-prs" style="cursor:pointer">
+          <span>Also create individual PRs for each run</span>
+        </label>
+        <span style="color:var(--text4);font-size:10px">(default: only 1 consensus PR)</span>
+      </div>
+    </div>
+
+    <div class="agent-config-block">
+      <div class="ac-header">
+        <div class="ac-title">Agents</div>
+        <button class="btn btn-sm" onclick="addAgentRow()">+ Add</button>
+      </div>
+      <div id="agent-rows"></div>
+    </div>
+
+    <div style="font-size:11px;color:var(--text3);margin-top:10px">
+      Est. cost: <strong style="color:var(--green)" id="m-est-cost">~$1.50</strong>
+      <span id="m-ensemble-cost" style="display:none">
+        × <span id="m-n-cost-label">3</span> runs + consensus = <strong style="color:var(--green)" id="m-total-est">~$6.00</strong>
+      </span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="hideLaunchModal()">Cancel</button>
+      <button class="btn btn-primary" id="m-launch-btn" onclick="launchRun()">Launch Run 🚀</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Signal Modal -->
+<div class="modal-overlay" id="signal-modal" onclick="if(event.target===this)hideSignalModal()">
+  <div class="modal" style="width:580px">
+    <h3>📋 New Task</h3>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Paste a bug report, describe a task, drop a Slack thread — anything that might need engineering work.</div>
+
+    <label>Title <span style="color:var(--red)">*</span></label>
+    <input id="ns-title" placeholder="e.g. Fix null pointer in payment flow" style="margin-bottom:4px">
+
+    <label>Description</label>
+    <textarea id="ns-description" rows="5" placeholder="Paste the full context here — error messages, stack traces, acceptance criteria, Slack messages, PRD excerpts...&#10;&#10;The more context you provide, the better the AI investigation will be."></textarea>
+
+    <div style="display:flex;gap:12px;margin-top:12px">
+      <div style="flex:1">
+        <label>Severity</label>
+        <select id="ns-severity">
+          <option value="medium" selected>🟡 Medium</option>
+          <option value="critical">🔴 Critical</option>
+          <option value="high">🟠 High</option>
+          <option value="low">⚪ Low</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label>Files (optional, comma-separated)</label>
+        <input id="ns-files" placeholder="e.g. src/payments.py, lib/auth.js">
+      </div>
+    </div>
+
+    <div style="margin-top:12px;padding:10px;border-radius:6px;background:var(--bg);border:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px">
+        <span>💡</span>
+        <span>After creating, click <strong style="color:var(--blue)">🔍 Investigate</strong> to let the AI analyze your codebase and propose a fix.</span>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="hideSignalModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewSignal()">Create Task 📋</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════
+   State & Data
+   ═══════════════════════════════════════ */
+let state = {
+  runs: [],
+  workflows: [],
+  personas: [],
+  stats: {},
+  ensembles: [],
+  signals: [],
+  signalTotal: 0,
+  signalOffset: 0,
+  activeSignalId: null,
+  signalFilter: 'all',
+  pollTimer: null,
+  expandedAgents: new Set(),
+  activeEnsembleId: null,
+  activeEnsembleTab: 'overview',
+  numRuns: 1,
+  runnerMode: 'api',  // 'api' or 'cli' — loaded from settings on init
+};
+
+/* ═══════════════════════════════════════
+   API
+   ═══════════════════════════════════════ */
+const api = {
+  get: u => fetch('/api'+u).then(r=>r.json()),
+  post: (u,d) => fetch('/api'+u, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(async r=>{
+    if(!r.ok) {
+      // Try to parse as JSON, fall back to text
+      const text = await r.text();
+      let msg = 'Request failed';
+      try { msg = JSON.parse(text).error || msg; } catch(e) { msg = `Server error (${r.status})`; }
+      throw new Error(msg);
+    }
+    return r.json();
+  }),
+};
+
+/* ═══════════════════════════════════════
+   Init & Refresh
+   ═══════════════════════════════════════ */
+async function init() {
+  // Load runner mode first (for badge display)
+  try {
+    const settings = await api.get('/settings');
+    currentSettings = settings;
+    state.runnerMode = settings.mode;
+    updateModeIndicator(settings.mode);
+  } catch(e) { state.runnerMode = 'api'; }
+
+  await refreshData();
+  startPolling();
+
+  // Route from URL hash
+  await routeFromHash();
+  window.addEventListener('hashchange', routeFromHash);
+}
+
+async function routeFromHash() {
+  const hash = window.location.hash.replace('#', '') || 'tasks';
+  const parts = hash.split('/');
+  const page = parts[0];
+  const id = parts[1];
+
+  // Map hash names to internal view names
+  const viewMap = {tasks: 'signals', runs: 'runs', workflows: 'workflows', personas: 'personas', costs: 'costs', settings: 'settings', integrations: 'integrations'};
+  const view = viewMap[page] || 'signals';
+
+  switchView(view, null, true);  // skipHash=true to avoid pushing duplicate
+
+  // Deep link to specific task
+  if (page === 'tasks' && id) {
+    await loadSignals();
+    selectSignal(id);
+  }
+}
+
+async function refreshData() {
+  // Save scroll position before re-render
+  const contentEl = document.getElementById('content');
+  const scrollPos = contentEl ? contentEl.scrollTop : 0;
+
+  try {
+    [state.runs, state.workflows, state.personas, state.stats, state.ensembles] = await Promise.all([
+      api.get('/runs'), api.get('/workflows'), api.get('/personas'), api.get('/stats'), api.get('/ensembles'),
+    ]);
+  } catch(e) { console.error('Refresh error:', e); }
+  renderAll();
+
+  // Restore scroll position after render
+  if (contentEl) requestAnimationFrame(() => { contentEl.scrollTop = scrollPos; });
+}
+
+function startPolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(refreshData, 5000);
+}
+
+function renderAll() {
+  renderRuns();
+  renderEnsembles();
+  renderSidebar();
+  renderCosts();
+  // Static views only need rendering once (or on user action)
+  if (!state._staticRendered) {
+    state._staticRendered = true;
+    renderWorkflows();
+    renderPersonas();
+  }
+}
+
+/* ═══════════════════════════════════════
+   View Switching
+   ═══════════════════════════════════════ */
+function switchView(view, el, skipHash) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-'+view).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if(el) el.classList.add('active');
+  else {
+    // Auto-highlight correct nav item
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.getAttribute('onclick') && n.getAttribute('onclick').includes("'" + view + "'")) n.classList.add('active');
+    });
+  }
+  const titles = {signals:'Tasks',runs:'Runs',workflows:'Workflows',personas:'Agent Personas',costs:'Cost Tracker',settings:'Settings',integrations:'Integrations'};
+  document.getElementById('page-title').textContent = titles[view]||view;
+  if (view !== 'runs' && state.activeEnsembleId) {
+    closeEnsembleDetail();
+  }
+  if (view === 'settings') loadSettings();
+  if (view === 'signals') loadSignals();
+  if (view === 'integrations') loadIntegrations();
+  // Update URL hash
+  if (!skipHash) {
+    const hash = view === 'signals' ? '#tasks' : '#' + view;
+    if (window.location.hash !== hash) history.pushState(null, '', hash);
+  }
+}
+
+/* ═══════════════════════════════════════
+   Render: Runs
+   ═══════════════════════════════════════ */
+function renderRuns() {
+  const c = document.getElementById('runs-container');
+
+  // Don't touch runs list if we're showing ensemble detail inline
+  if (state.activeEnsembleId) {
+    c.style.display = 'none';
+    document.getElementById('ensemble-detail-container').style.display = 'block';
+    loadEnsembleDetails(state.activeEnsembleId);
+    return;
+  }
+
+  c.style.display = 'block';
+  document.getElementById('ensemble-detail-container').style.display = 'none';
+
+  // Merge single runs (non-ensemble children) and ensemble entries
+  const singleRuns = (state.runs || []).filter(r => !r.ensemble_id);
+  const ensembles = state.ensembles || [];
+
+  if (!singleRuns.length && !ensembles.length) {
+    c.innerHTML = '<div class="empty"><div class="icon">⚡</div><div class="title">No runs yet. Click "+ New Run" to start.</div></div>';
+    state._lastRunIds = '';
+    return;
+  }
+
+  // Build unified timeline sorted by most recent
+  const items = [];
+  for (const r of singleRuns) items.push({type:'run', id:r.id, data:r, time: r.started_at || r.created_at || ''});
+  for (const e of ensembles) items.push({type:'ensemble', id:e.id, data:e, time: e.started_at || e.created_at || ''});
+  items.sort((a,b) => (b.time||'').localeCompare(a.time||''));
+
+  const currentIds = items.map(i => i.type+':'+i.id).join(',');
+  if (state._lastRunIds !== currentIds) {
+    state._lastRunIds = currentIds;
+    let html = '';
+    for (const item of items) {
+      html += item.type === 'ensemble' ? renderEnsembleCard(item.data) : renderRunCard(item.data);
+    }
+    c.innerHTML = html;
+  }
+
+  // Update single run headers in-place
+  for (const run of singleRuns) {
+    const card = c.querySelector(`[data-run-id="${run.id}"]`);
+    if (!card) continue;
+    const badge = card.querySelector('.status-badge');
+    if (badge) { badge.className = 'status-badge s-'+run.status; badge.textContent = run.status.replace('_',' '); }
+    const meta = card.querySelector('.run-meta');
+    if (meta) meta.innerHTML = `<span>⏱ ${run.duration_minutes} min</span><span>💰 $${run.total_cost.toFixed(2)}</span><span>🔄 Round ${run.review_round}</span><span>${run.auto_approve?'🟢 Autopilot':'🛑 Manual'}</span>`;
+  }
+
+  // Update ensemble cards in-place
+  for (const e of ensembles) {
+    const card = c.querySelector(`[data-ensemble-id="${e.id}"]`);
+    if (!card) continue;
+    const badge = card.querySelector('.status-badge');
+    if (badge) { badge.className = 'status-badge s-'+e.status; badge.textContent = e.status; }
+  }
+
+  // Refresh details for active single runs (fingerprint check prevents flicker)
+  for (const run of singleRuns) {
+    const detailEl = document.getElementById('run-detail-'+run.id);
+    const isActive = ['running','needs_approval','pending'].includes(run.status);
+    const hasContent = detailEl && detailEl.innerHTML.length > 0;
+    if (isActive || hasContent) loadRunDetails(run.id);
+  }
+}
+
+function renderEnsembleCard(e) {
+  const statusColor = {running:'var(--blue)',comparing:'var(--purple)',synthesizing:'var(--orange)',reviewing:'#22d3ee',done:'var(--green)',failed:'var(--red,#ff4444)',pending:'var(--text3)'}[e.status]||'var(--text3)';
+  const childRuns = (state.runs || []).filter(r => r.ensemble_id === e.id);
+  const done = childRuns.filter(r => ['converged','merged'].includes(r.status)).length;
+  const running = childRuns.filter(r => r.status === 'running').length;
+  return `
+    <div data-ensemble-id="${e.id}" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:14px;cursor:pointer;border-left:3px solid ${statusColor}"
+         onclick="showEnsembleInline('${e.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:600;color:#fff">🎯 ${e.title}</span>
+          <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#c4f34a15;color:var(--green);border:1px solid #c4f34a33">${e.num_runs}× parallel</span>
+        </div>
+        <span class="status-badge s-${e.status}">${e.status}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">${(e.task_description||'').substring(0,120)}</div>
+      <div class="ens-meta" style="font-size:11px;color:var(--text3);display:flex;gap:14px">
+        <span>🎯 ${e.num_runs}× parallel</span>
+        <span>⏱ ${e.duration_minutes||0}m</span>
+        <span>💰 $${(e.total_cost||0).toFixed(2)}</span>
+      </div>
+      ${e.status === 'running' ? `<div style="margin-top:8px">
+        <div style="font-size:10px;color:var(--blue);margin-bottom:4px">⚡ ${done}/${e.num_runs} done, ${running} running</div>
+        <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+          <div style="height:100%;width:${e.num_runs?Math.round((done/e.num_runs)*100):0}%;background:linear-gradient(90deg,var(--green),var(--blue));border-radius:2px;transition:width .5s"></div>
+        </div>
+      </div>` : ''}
+    </div>`;
+}
+
+function renderRunCard(run) {
+  const statusClass = 's-'+run.status;
+  const statusLabel = run.status.replace('_',' ');
+  return `
+    <div data-run-id="${run.id}" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:14px;cursor:pointer" onclick="loadRunDetails('${run.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:600;color:#fff">${run.title}</div>
+        <span class="status-badge ${statusClass}">${statusLabel}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${run.task_description.substring(0,120)}${run.task_description.length>120?'...':''}</div>
+      <div class="run-meta" style="font-size:11px;color:var(--text3);display:flex;gap:14px">
+        <span>⏱ ${run.duration_minutes} min</span>
+        <span>💰 $${run.total_cost.toFixed(2)}</span>
+        <span>🔄 Round ${run.review_round}</span>
+        <span>${run.auto_approve?'🟢 Autopilot':'🛑 Manual'}</span>
+      </div>
+      <div id="run-detail-${run.id}"></div>
+    </div>`;
+}
+
+
+
+function toggleAgent(agentId) {
+  if (state.expandedAgents.has(agentId)) {
+    state.expandedAgents.delete(agentId);
+    disconnectStream(agentId);
+  } else {
+    state.expandedAgents.add(agentId);
+    // Auto-connect stream if agent is running
+    setTimeout(() => connectStreamIfRunning(agentId), 100);
+  }
+  const card = document.querySelector(`[data-agent-id="${agentId}"]`);
+  if (card) card.classList.toggle('expanded');
+}
+
+// ── Live Streaming (SSE) ──
+
+const activeStreams = {};  // agentId → EventSource
+
+function connectStreamIfRunning(agentId) {
+  const el = document.getElementById('stream-' + agentId);
+  if (!el) return;  // Not a running agent or panel not rendered
+  if (activeStreams[agentId]) return;  // Already connected
+
+  const es = new EventSource('/api/agents/' + agentId + '/stream');
+  activeStreams[agentId] = es;
+  let outputEl = document.getElementById('stream-output-' + agentId);
+  let toolsEl = document.getElementById('stream-tools-' + agentId);
+  let statsEl = document.getElementById('stream-stats-' + agentId);
+  let outputText = '';
+  let toolBadges = [];
+
+  es.onmessage = function(event) {
+    try {
+      const ev = JSON.parse(event.data);
+      // Re-resolve elements (DOM may have been rebuilt by poll)
+      outputEl = document.getElementById('stream-output-' + agentId);
+      toolsEl = document.getElementById('stream-tools-' + agentId);
+      statsEl = document.getElementById('stream-stats-' + agentId);
+      if (!outputEl) { disconnectStream(agentId); return; }
+
+      switch (ev.type) {
+        case 'text':
+          outputText += ev.data.text;
+          outputEl.textContent = outputText.length > 3000
+            ? '...\n' + outputText.substring(outputText.length - 2500)
+            : outputText;
+          outputEl.scrollTop = outputEl.scrollHeight;
+          break;
+
+        case 'tool_start':
+          toolBadges.push({tool: ev.data.tool, status: 'active'});
+          renderToolBadges(toolsEl, toolBadges);
+          break;
+
+        case 'tool_call':
+          // Update the last badge to show what tool was called
+          if (toolBadges.length) toolBadges[toolBadges.length - 1] = {tool: ev.data.tool, status: 'active', input: ev.data.input};
+          renderToolBadges(toolsEl, toolBadges);
+          break;
+
+        case 'tool_result':
+          // Mark last badge as done
+          if (toolBadges.length) {
+            const last = toolBadges[toolBadges.length - 1];
+            last.status = ev.data.ok ? 'ok' : 'err';
+          }
+          renderToolBadges(toolsEl, toolBadges);
+          break;
+
+        case 'usage':
+          if (statsEl) {
+            if (ev.data.heartbeat) {
+              // CLI mode heartbeat
+              statsEl.innerHTML = `<span style="color:var(--green)">💚 Alive — ${ev.data.heartbeat}</span>`
+                + `<span>Files changed: ${ev.data.files_changed || 0}</span>`
+                + `<span>PID running</span>`;
+            } else {
+              statsEl.innerHTML = `<span>Tokens: ${(ev.data.total_in||0).toLocaleString()} in / ${(ev.data.total_out||0).toLocaleString()} out</span>`
+                + `<span>Cost: $${(ev.data.cost||0).toFixed(4)}</span>`
+                + `<span>Turn: ${ev.data.total_in ? Math.ceil((ev.data.total_in||0)/4000) : '—'}</span>`;
+            }
+          }
+          break;
+
+        case 'turn':
+          outputText += '\n';
+          break;
+
+        case 'error':
+          outputText += '\n❌ ' + (ev.data.message || 'Unknown error');
+          if (outputEl) { outputEl.textContent = outputText; outputEl.scrollTop = outputEl.scrollHeight; }
+          break;
+
+        case 'complete':
+        case 'finished':
+          if (ev.data && ev.data.cost !== undefined && statsEl) {
+            const estLabel = ev.data.estimated ? ' ~' : ' ';
+            statsEl.innerHTML = `<span>Tokens:${estLabel}${(ev.data.tokens_in||0).toLocaleString()} in / ${(ev.data.tokens_out||0).toLocaleString()} out${ev.data.estimated?' (est)':''}</span>`
+              + `<span style="color:var(--green)">Cost:${estLabel}$${(ev.data.cost||0).toFixed(4)}</span>`
+              + `<span>Turns: ${ev.data.turns||'—'} · Tools: ${ev.data.tool_calls||'—'}</span>`;
+          }
+          const headerEl = el.querySelector('.ls-header');
+          const modeStr = state.runnerMode === 'cli' ? 'Claude Code CLI' : 'Anthropic API';
+          if (headerEl) headerEl.innerHTML = `<span style="color:var(--green)">✅</span> COMPLETE — ${modeStr}`;
+          break;
+
+        case 'done':
+        case 'stream_end':
+        case 'cancelled':
+          disconnectStream(agentId);
+          break;
+      }
+    } catch(e) {
+      console.warn('Stream parse error:', e);
+    }
+  };
+
+  es.onerror = function() {
+    disconnectStream(agentId);
+  };
+}
+
+function disconnectStream(agentId) {
+  const es = activeStreams[agentId];
+  if (es) {
+    es.close();
+    delete activeStreams[agentId];
+  }
+}
+
+function renderToolBadges(el, badges) {
+  if (!el) return;
+  const TOOL_ICONS = {
+    read_file: '📖', write_file: '✏️', list_directory: '📁',
+    run_command: '⚡', search_files: '🔍',
+  };
+  // Show last 15 badges
+  const recent = badges.slice(-15);
+  el.innerHTML = recent.map(b => {
+    const icon = TOOL_ICONS[b.tool] || '🔧';
+    const cls = b.status === 'active' ? 'active' : b.status === 'ok' ? 'ok' : b.status === 'err' ? 'err' : '';
+    let label = b.tool;
+    if (b.input && b.input.path) label += ': ' + b.input.path.split('/').pop();
+    else if (b.input && b.input.command) label += ': ' + b.input.command.substring(0, 20);
+    return '<span class="ls-tool ' + cls + '">' + icon + ' ' + label + '</span>';
+  }).join('');
+}
+
+// Reconnect streams after DOM rebuild (poll refresh)
+function reconnectStreams() {
+  for (const agentId of state.expandedAgents) {
+    if (!activeStreams[agentId]) {
+      connectStreamIfRunning(agentId);
+    }
+  }
+}
+
+async function loadRunDetails(runId) {
+  const data = await api.get('/runs/'+runId);
+  const el = document.getElementById('run-detail-'+runId);
+  if (!el) return;
+
+  let html = '';
+
+  // Pipeline bar
+  if (data.workflow) {
+    const stages = data.workflow.stages || [];
+    html += '<div class="pipeline-bar" style="margin-top:12px">';
+    stages.forEach((s,i) => {
+      let cls = '';
+      if (i < data.current_stage_index) cls = 'done';
+      else if (i === data.current_stage_index) cls = data.status === 'needs_approval' ? 'approval' : 'active';
+      const isReview = s.converge;
+      const stageLabel = isReview ? `${s.name} 🔀` : s.name;
+      html += `<div class="p-stage ${cls}"><div class="dot"></div><div class="label">${stageLabel}</div></div>`;
+      // Add synthesis step after review stages
+      if (isReview) {
+        const synthCls = i < data.current_stage_index ? 'done' : '';
+        html += `<div class="p-stage ${synthCls}" style="opacity:.6"><div class="dot" style="width:6px;height:6px"></div><div class="label" style="font-size:9px">synthesis</div></div>`;
+      }
+    });
+    html += '</div>';
+  }
+
+  // Agent cards — grouped by stage with parallel indicator
+  if (data.agents && data.agents.length) {
+    const stages = [...new Set(data.agents.map(a => a.stage_name))];
+
+    for (const stageName of stages) {
+      const stageAgents = data.agents.filter(a => a.stage_name === stageName);
+      const isReviewStage = stageAgents.length > 1 && stageName === 'review';
+
+      if (isReviewStage) {
+        const runningCount = stageAgents.filter(a => a.status === 'running').length;
+        const doneCount = stageAgents.filter(a => ['done','converged'].includes(a.status)).length;
+        const waitingCount = stageAgents.filter(a => a.status === 'waiting').length;
+        const allDone = doneCount === stageAgents.length;
+        const progPct = Math.round((doneCount / stageAgents.length) * 100);
+
+        html += `<div style="margin:12px 0 6px;padding:10px 14px;background:#c4f34a08;border:1px solid #c4f34a22;border-radius:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:600;color:var(--green)">🔀 Parallel Reviewers</span>
+            <span style="font-size:10px;color:var(--text3)">${
+              runningCount > 0 
+                ? `<span style="color:var(--blue)">⚡ ${runningCount} running simultaneously</span>` 
+                : allDone 
+                  ? `<span style="color:var(--green)">✅ ${doneCount}/${stageAgents.length} complete → synthesizing</span>`
+                  : `${doneCount}/${stageAgents.length} done`
+            }</span>
+          </div>
+          <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:${progPct}%;background:${allDone ? 'var(--green)' : 'var(--blue)'};transition:width .5s;${runningCount > 0 ? 'animation:progPulse 2s infinite' : ''}"></div>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text4)">
+            <span>Each reviewer works in its own worktree</span>
+            <span>·</span>
+            <span>Branches merged after all finish</span>
+          </div>
+        </div>`;
+      }
+
+      html += '<div class="agents-grid">';
+      for (const a of stageAgents) {
+      const p = a.persona || {};
+      const ptClass = 'pt-'+(p.role||'engineer');
+      const sClass = 's-'+(a.status||'waiting');
+      const isRunning = a.status === 'running';
+      const isDone = ['done','converged','failed'].includes(a.status);
+      const prog = isDone ? 100 : isRunning ? 60 : 0;
+      const pfClass = isDone && a.status!=='failed' ? 'pf-green' : isRunning ? 'pf-blue' : a.status==='failed' ? 'pf-orange' : '';
+
+      // Build timeline from what we know
+      let timelineHtml = '';
+      const steps = [];
+      if (a.started_at) steps.push({dot:'var(--blue)', text:`Started at ${new Date(a.started_at).toLocaleTimeString()}`});
+      if (isRunning) steps.push({dot:'var(--blue)', text:`Running on model: ${a.model}...`});
+      if (a.issues_found > 0) steps.push({dot:'var(--orange)', text:`Found ${a.issues_found} issues`});
+      if (isDone && a.status !== 'failed') steps.push({dot:'var(--green)', text:`Completed (${a.duration_minutes||0}m, $${(a.cost||0).toFixed(2)})`});
+      if (a.status === 'failed') steps.push({dot:'var(--red,#ff4444)', text:'Failed'});
+
+      if (steps.length) {
+        timelineHtml = `<div class="ad-timeline">${steps.map(s =>
+          `<div class="ad-step"><div class="ad-dot" style="background:${s.dot}"></div><div class="ad-text">${s.text}</div></div>`
+        ).join('')}</div>`;
+      }
+
+      // Output preview / Live Stream
+      let outputHtml = '';
+      if (isRunning) {
+        const modeLabel = state.runnerMode === 'cli' ? 'Claude Code CLI' : 'Anthropic API + Tool Use';
+        outputHtml = `<div class="live-stream" id="stream-${a.id}">
+          <div class="ls-header"><div class="ls-dot"></div> LIVE — ${modeLabel}</div>
+          <div class="ls-tools" id="stream-tools-${a.id}"></div>
+          <div class="ls-output" id="stream-output-${a.id}">Connecting to agent stream...</div>
+          <div class="ls-stats" id="stream-stats-${a.id}">
+            <span>Tokens: —</span><span>Cost: —</span><span>Turn: —</span>
+          </div>
+        </div>`;
+      } else if (a.output_log && a.output_log.length > 0) {
+        const log = a.output_log;
+        const tail = log.length > 600 ? '...\n' + log.substring(log.length - 500) : log;
+        const preview = tail.replace(/</g,'&lt;');
+        const lineCount = log.split('\n').length;
+        outputHtml = `<div style="margin-top:8px">
+          <div class="ad-label">Output <span style="color:var(--text4);font-weight:normal">${lineCount} lines · ${(log.length/1024).toFixed(1)}KB</span></div>
+          <div class="ad-output">${preview}</div>
+        </div>`;
+      }
+
+      html += `
+        <div class="agent-card expandable ${isRunning?'is-running':''} ${state.expandedAgents.has(a.id)?'expanded':''}" style="${a.status==='waiting'?'opacity:.5':''}"
+             onclick="toggleAgent('${a.id}')" data-agent-id="${a.id}" title="Click to ${isDone?'see details':'track progress'}">
+          <div class="card-top">
+            <div>
+              <div class="a-name">${a.name}</div>
+              <div class="persona-tag ${ptClass}">${p.role||a.stage_name}</div>
+            </div>
+            <span class="status-badge ${sClass}">
+              ${isRunning?'<span style="display:inline-block;animation:agentPulse 1s infinite">●</span> ':''}${a.status}${a.issues_found?' · '+a.issues_found+' issues':''}
+            </span>
+            ${isRunning?`<button onclick="event.stopPropagation();stopAgent('${a.id}')" style="background:var(--red,#e74c3c);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-weight:600" title="Stop this agent">⏹ Stop</button>`:''}
+          </div>
+          <div class="task">${a.stage_name} — ${(data.task_description||'').substring(0,80)}</div>
+          <div class="meta">
+            <span class="model-tag">${a.model} <span style="color:${state.runnerMode==='cli'?'var(--green)':'var(--blue)'};font-size:8px">${(state.runnerMode||'api').toUpperCase()}</span></span>
+            <span>⏱ ${a.duration_minutes||0}m</span>
+            <span>💰 $${(a.cost||0).toFixed(2)}</span>
+            ${a.issues_found?`<span style="color:var(--orange)">⚠ ${a.issues_found} issues</span>`:''}
+          </div>
+          <div class="prog"><div class="prog-fill ${pfClass}" style="width:${prog}%"></div></div>
+
+          <div class="agent-detail" onclick="event.stopPropagation()">
+            <div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:6px">Agent Details</div>
+            <div class="ad-row"><span class="ad-label">Stage</span><span class="ad-val">${a.stage_name}</span></div>
+            <div class="ad-row"><span class="ad-label">Model</span><span class="ad-val">${a.model}</span></div>
+            <div class="ad-row"><span class="ad-label">Duration</span><span class="ad-val">${a.duration_minutes||0} min</span></div>
+            <div class="ad-row"><span class="ad-label">Cost</span><span class="ad-val">$${(a.cost||0).toFixed(2)}</span></div>
+            ${a.issues_found?`<div class="ad-row"><span class="ad-label">Issues Found</span><span class="ad-val" style="color:var(--orange)">${a.issues_found}</span></div>`:''}
+            ${a.worktree_path?`<div class="ad-row"><span class="ad-label">Worktree</span><span class="ad-val" style="font-size:9px">${a.worktree_path.split('/').pop()}</span></div>`:''}
+
+            ${timelineHtml}
+            ${outputHtml}
+
+            ${isDone?`<div style="margin-top:8px;display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="event.stopPropagation();viewAgentOutput('${a.id}')">📄 Full Output</button>
+            </div>`:''}
+          </div>
+
+          <div class="expand-btn" style="text-align:center;font-size:10px;color:var(--text3);cursor:pointer">
+            ▾ click to ${isDone?'see details':'track progress'}
+          </div>
+        </div>`;
+    }
+    html += '</div>'; // close agents-grid for this stage
+    } // close stages loop
+  }
+
+  // Convergence panel
+  if (data.review_history && data.review_history.length) {
+    const rh = data.review_history;
+    const totalIssues = rh[rh.length-1].issues;
+    const reviewerCount = data.agents ? data.agents.filter(a => a.stage_name === 'review').length : 0;
+    const parallelTag = reviewerCount > 1 ? ` <span style="color:var(--green);font-size:10px">(${reviewerCount} parallel reviewers → synthesis)</span>` : '';
+    html += `<div class="conv-panel"><div class="title">✅ Review Summary${parallelTag}</div>`;
+    html += `<div style="font-size:20px;font-weight:700;color:${totalIssues===0?'var(--green)':'var(--blue)'};margin:8px 0">${totalIssues} issues found &amp; fixed</div>`;
+
+    // Per-reviewer breakdown
+    if (reviewerCount > 1) {
+      const reviewAgents = data.agents.filter(a => a.stage_name === 'review');
+      if (reviewAgents.some(a => ['done','converged'].includes(a.status))) {
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
+        reviewAgents.forEach(a => {
+          const p = a.persona || {};
+          const statusIcon = a.status === 'running' ? '⚡' : a.status === 'done' || a.status === 'converged' ? '✓' : '⏳';
+          html += `<div style="font-size:11px;padding:4px 10px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">
+            ${p.icon||'🤖'} ${(p.name||a.name).split(' ').slice(-1)[0]} · ${statusIcon} ${a.issues_found || 0} issues
+          </div>`;
+        });
+        html += '</div>';
+      }
+    }
+
+    html += '</div>';
+  }
+
+  // Checkpoint
+  if (data.status === 'needs_approval') {
+    html += `
+      <div class="checkpoint">
+        <div class="beacon">👋</div>
+        <div class="cp-body">
+          <div class="cp-title">Your turn — approve to continue</div>
+          <div class="cp-desc">${data.review_round?`${data.review_round} review rounds completed.`:''} ${data.agents?data.agents.length+' agents finished.':''} Cost so far: $${data.total_cost.toFixed(2)}</div>
+        </div>
+        <div class="cp-actions">
+          <button class="btn btn-sm btn-danger" onclick="cancelRun('${data.id}')">Cancel</button>
+          <button class="btn btn-sm btn-primary" onclick="approveRun('${data.id}')">Approve ✓</button>
+        </div>
+      </div>`;
+  }
+
+  if (data.status === 'converged') {
+    html += `
+      <div class="checkpoint">
+        <div class="beacon">🔀</div>
+        <div class="cp-body">
+          <div class="cp-title">Ready to open PR</div>
+          <div class="cp-desc">All reviews converged. $${data.total_cost.toFixed(2)} total cost. ${data.duration_minutes} min.</div>
+        </div>
+        <div class="cp-actions">
+          <button class="btn btn-sm" onclick="cancelRun('${data.id}')">Cancel</button>
+          <button class="btn btn-sm btn-primary" onclick="mergeRun('${data.id}')">Open PR 🚀</button>
+        </div>
+      </div>`;
+  }
+
+  // Logs
+  const logs = await api.get('/runs/'+runId+'/logs?limit=30');
+  if (logs.length) {
+    html += '<div class="log-stream">';
+    for (const l of logs) {
+      html += `<div><span class="l-time">${l.timestamp}</span> <span class="l-agent">[${l.agent_name}]</span> <span class="l-${l.level}">${l.message}</span></div>`;
+    }
+    html += '</div>';
+  }
+
+  // Smart update: only replace DOM if content actually changed
+  // Build a lightweight fingerprint from agent states
+  const fingerprint = (data.agents||[]).map(a => `${a.id}:${a.status}:${a.issues_found}:${(a.output_log||'').length}:${a.cost}`).join('|')
+    + '|' + data.status + ':' + data.review_round + ':' + data.current_stage_index;
+
+  if (el.dataset.fingerprint === fingerprint) {
+    // Nothing changed but reconnect any dropped streams
+    reconnectStreams();
+    return;
+  }
+  el.dataset.fingerprint = fingerprint;
+
+  // Disconnect streams before DOM nuke (they'll reconnect after)
+  for (const agentId of state.expandedAgents) {
+    disconnectStream(agentId);
+  }
+
+  el.innerHTML = html;
+
+  // Reconnect streams for expanded running agents
+  reconnectStreams();
+}
+
+/* ═══════════════════════════════════════
+   Run Actions
+   ═══════════════════════════════════════ */
+async function approveRun(id) {
+  await api.post('/runs/'+id+'/approve', {});
+  refreshData();
+}
+
+async function mergeRun(id) {
+  await api.post('/runs/'+id+'/merge', {});
+  refreshData();
+}
+
+async function cancelRun(id) {
+  if (confirm('Cancel this run? Running agents will be stopped.')) {
+    await api.post('/runs/'+id+'/cancel', {});
+    refreshData();
+  }
+}
+
+async function stopAgent(agentId) {
+  try {
+    await api.post('/agents/'+agentId+'/stop', {});
+    refreshData();
+  } catch(e) {
+    console.error('Failed to stop agent:', e);
+  }
+}
+
+async function clearAllRuns() {
+  if (confirm('Delete ALL runs, stop all agents, and clean up worktrees?')) {
+    await api.post('/runs/clear', {});
+    refreshData();
+  }
+}
+
+function openDebug() {
+  window.open('/api/debug', '_blank');
+}
+
+async function viewAgentOutput(agentId) {
+  const data = await api.get('/agents/'+agentId);
+  const output = data.output_log || '(no output captured)';
+  const w = window.open('', '_blank', 'width=800,height=600');
+  w.document.write(`<html><head><title>Agent Output: ${data.name}</title>
+    <style>body{background:#0a0a0f;color:#ccc;font-family:'SF Mono',monospace;font-size:12px;padding:20px;white-space:pre-wrap;line-height:1.6}
+    h2{font-family:system-ui;color:#fff;margin-bottom:10px}
+    .meta{color:#888;margin-bottom:16px;font-family:system-ui;font-size:13px}</style></head>
+    <body><h2>${data.name}</h2>
+    <div class="meta">Model: ${data.model} · Status: ${data.status} · Cost: $${(data.cost||0).toFixed(2)} · Duration: ${data.duration_minutes||0}m</div>
+    ${output.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</body></html>`);
+}
+
+/* ═══════════════════════════════════════
+   Render: Workflows
+   ═══════════════════════════════════════ */
+function renderWorkflows() {
+  const g = document.getElementById('workflows-grid');
+  let html = '';
+  for (const w of state.workflows) {
+    const stages = w.stages || [];
+    html += `
+      <div class="wf-card" onclick="launchFromWorkflow('${w.id}')">
+        <div class="wf-name">${w.icon} ${w.name}</div>
+        <div class="wf-desc">${w.description}</div>
+        <div class="wf-agents">${stages.map(s => `<span class="persona-tag pt-${s.name==='review'?'reviewer':s.name}">${s.name}</span>`).join('')}</div>
+        <div class="wf-meta">
+          <span>${stages.length} stages</span>
+          <span>Max ${w.max_review_rounds} review rounds</span>
+          <span>Used ${w.times_used}×</span>
+        </div>
+      </div>`;
+  }
+  g.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════
+   Render: Personas
+   ═══════════════════════════════════════ */
+function renderPersonas() {
+  const c = document.getElementById('personas-list');
+  let html = '';
+  for (const p of state.personas) {
+    html += `
+      <div class="persona-card">
+        <div class="pc-top">
+          <div>
+            <div class="pc-name">${p.icon} ${p.name}</div>
+            <div class="persona-tag pt-${p.role}" style="margin-top:4px">${p.role}</div>
+          </div>
+          <span class="model-tag">${p.default_model}</span>
+        </div>
+        <div class="pc-desc">${p.prompt_template.substring(0,200)}...</div>
+        <div class="traits">${(p.traits||[]).map(t => `<span class="trait">${t}</span>`).join('')}</div>
+      </div>`;
+  }
+  c.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════
+   Render: Costs
+   ═══════════════════════════════════════ */
+function renderCosts() {
+  const totalCost = state.runs.reduce((s,r) => s + r.total_cost, 0);
+  const activeRuns = state.runs.filter(r => ['running','needs_approval'].includes(r.status)).length;
+
+  document.getElementById('cost-cards').innerHTML = `
+    <div class="cost-card"><div class="c-label">Total Cost</div><div class="c-value" style="color:var(--green)">$${totalCost.toFixed(2)}</div><div class="c-sub">${state.runs.length} runs</div></div>
+    <div class="cost-card"><div class="c-label">Active Runs</div><div class="c-value">${activeRuns}</div><div class="c-sub">${state.stats.active_agents||0} agents</div></div>
+    <div class="cost-card"><div class="c-label">Avg Cost/Run</div><div class="c-value">$${state.runs.length?(totalCost/state.runs.length).toFixed(2):'0.00'}</div><div class="c-sub">per run</div></div>
+    <div class="cost-card"><div class="c-label">Total Runs</div><div class="c-value">${state.stats.total_runs||0}</div><div class="c-sub">all time</div></div>`;
+
+  const tbody = document.getElementById('cost-tbody');
+  tbody.innerHTML = state.runs.map(r => `
+    <tr>
+      <td style="color:var(--text)">${r.title}</td>
+      <td>${r.workflow_id?.substring(0,8)||'—'}</td>
+      <td>${r.review_round} rounds</td>
+      <td>${r.duration_minutes}m</td>
+      <td class="cost-val">$${r.total_cost.toFixed(2)}</td>
+    </tr>`).join('');
+}
+
+
+/* ═══════════════════════════════════════
+   Settings
+   ═══════════════════════════════════════ */
+let currentSettings = null;
+
+async function loadSettings() {
+  try {
+    currentSettings = await api.get('/settings');
+    renderSettings(currentSettings);
+    updateModeIndicator(currentSettings.mode);
+  } catch (e) {
+    document.getElementById('settings-content').innerHTML = '<div style="color:var(--red,#ff4444)">Failed to load settings</div>';
+  }
+}
+
+function renderSettings(s) {
+  const isApi = s.mode === 'api';
+  const isCli = s.mode === 'cli';
+  const baseUrl = window.location.origin;
+
+  document.getElementById('settings-content').innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:12px">Runner Mode</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+        Choose how agents execute. Switch anytime (when no agents are running).
+      </div>
+
+      <div style="display:flex;gap:12px;margin-bottom:16px">
+        <div onclick="switchMode('api')" style="flex:1;padding:16px;border-radius:8px;cursor:pointer;border:2px solid ${isApi?'var(--blue)':'var(--border)'};background:${isApi?'var(--blue)11':'var(--bg)'};transition:all .2s">
+          <div style="font-size:13px;font-weight:600;color:${isApi?'var(--blue)':'var(--text2)'}">⚡ Anthropic API</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.5">
+            Direct API calls with tool use loop.<br>
+            ✅ Exact token counts &amp; costs<br>
+            ✅ Live streaming to dashboard<br>
+            ✅ Tool call visibility<br>
+            ⚠️ Requires API key
+          </div>
+          ${isApi?'<div style="margin-top:8px;font-size:10px;color:var(--blue);font-weight:600">● ACTIVE</div>':''}
+        </div>
+
+        <div onclick="switchMode('cli')" style="flex:1;padding:16px;border-radius:8px;cursor:pointer;border:2px solid ${isCli?'var(--green)':'var(--border)'};background:${isCli?'var(--green-bg)':'var(--bg)'};transition:all .2s">
+          <div style="font-size:13px;font-weight:600;color:${isCli?'var(--green)':'var(--text2)'}">🖥️ Claude Code CLI</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.5">
+            Subprocess via <code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px">claude -p</code> command.<br>
+            ✅ Battle-tested &amp; proven<br>
+            ✅ Native file &amp; command access<br>
+            ✅ No API key needed<br>
+            ⚠️ Estimated costs only
+          </div>
+          ${isCli?'<div style="margin-top:8px;font-size:10px;color:var(--green);font-weight:600">● ACTIVE</div>':''}
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:12px">Status</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
+        <div style="padding:10px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+          <div style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">API Key</div>
+          <div style="color:${s.api_key_set?'var(--green)':'var(--orange)'};font-weight:600">${s.api_key_set?'✅ Configured':'⚠️ Not set'}</div>
+          ${!s.api_key_set?'<div style="font-size:10px;color:var(--text4);margin-top:2px">Set ANTHROPIC_API_KEY env var</div>':''}
+        </div>
+        <div style="padding:10px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+          <div style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Claude CLI</div>
+          <div style="color:${s.cli_available?'var(--green)':'var(--orange)'};font-weight:600">${s.cli_available?'✅ Found in PATH':'⚠️ Not found'}</div>
+          ${!s.cli_available?'<div style="font-size:10px;color:var(--text4);margin-top:2px">Install Claude Code CLI</div>':''}
+        </div>
+        <div style="padding:10px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+          <div style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Anthropic SDK</div>
+          <div style="color:${s.anthropic_installed?'var(--green)':'var(--orange)'};font-weight:600">${s.anthropic_installed?'✅ Installed':'⚠️ Not installed'}</div>
+        </div>
+        <div style="padding:10px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+          <div style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Active Agents</div>
+          <div style="color:var(--text);font-weight:600">${s.active_count}</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px">
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">Mode Comparison</div>
+      <table style="width:100%;font-size:11px;color:var(--text2);border-collapse:collapse">
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 0;color:var(--text3)">Feature</td>
+          <td style="padding:6px 8px;text-align:center;font-weight:600;color:var(--blue)">⚡ API</td>
+          <td style="padding:6px 8px;text-align:center;font-weight:600;color:var(--green)">🖥️ CLI</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 0">Cost tracking</td><td style="padding:6px 8px;text-align:center;color:var(--green)">Exact</td><td style="padding:6px 8px;text-align:center;color:var(--orange)">~Estimated</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 0">Live streaming</td><td style="padding:6px 8px;text-align:center;color:var(--green)">✅ Real-time</td><td style="padding:6px 8px;text-align:center;color:var(--text4)">❌ After finish</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 0">Tool visibility</td><td style="padding:6px 8px;text-align:center;color:var(--green)">Every call</td><td style="padding:6px 8px;text-align:center;color:var(--text4)">Hidden</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 0">File access</td><td style="padding:6px 8px;text-align:center">AgentOps tools</td><td style="padding:6px 8px;text-align:center;color:var(--green)">Native CC</td></tr>
+        <tr><td style="padding:6px 0">Requires</td><td style="padding:6px 8px;text-align:center">API key</td><td style="padding:6px 8px;text-align:center">claude CLI</td></tr>
+      </table>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px;cursor:pointer" onclick="switchView('integrations',document.querySelectorAll('.nav-item')[3])">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">🔗</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#fff">Task Integrations</div>
+          <div style="font-size:11px;color:var(--text3)">GitHub, Sentry, Shortcut — manage connections</div>
+        </div>
+        <span style="font-size:14px;color:var(--text4)">→</span>
+      </div>
+    </div>
+  `;
+}
+
+async function switchMode(newMode) {
+  if (currentSettings && currentSettings.mode === newMode) return;
+
+  try {
+    const result = await api.post('/settings', { mode: newMode });
+    currentSettings = result;
+    renderSettings(result);
+    updateModeIndicator(result.mode);
+  } catch (e) {
+    const msg = e.message || 'Failed to switch mode';
+    alert(msg);
+  }
+}
+
+function updateModeIndicator(mode) {
+  const el = document.getElementById('sb-mode');
+  if (!el) return;
+  if (mode === 'api') {
+    el.innerHTML = '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:var(--blue)22;color:var(--blue);font-family:\'SF Mono\',monospace">⚡ API MODE</span>';
+  } else {
+    el.innerHTML = '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:var(--green-bg);color:var(--green);font-family:\'SF Mono\',monospace">🖥️ CLI MODE</span>';
+  }
+  // Also update state for agent card badges
+  state.runnerMode = mode;
+}
+
+
+/* ═══════════════════════════════════════
+   Render: Sidebar
+   ═══════════════════════════════════════ */
+function renderSidebar() {
+  const activeRuns = state.runs.filter(r => ['running','needs_approval'].includes(r.status)).length;
+  const activeEnsembles = (state.ensembles||[]).filter(e => !['done','failed'].includes(e.status)).length;
+  const totalActive = activeRuns + activeEnsembles;
+  const cost = state.runs.reduce((s,r) => s+r.total_cost, 0);
+  const ensembleCost = (state.ensembles||[]).reduce((s,e) => s+(e.total_cost||0), 0);
+  document.getElementById('active-badge').textContent = totalActive;
+  document.getElementById('sb-active').textContent = state.stats.active_agents || 0;
+  document.getElementById('sb-cost').textContent = '$'+(cost+ensembleCost).toFixed(2);
+  // Signal badge
+  const pendingSigs = state.stats.pending_signals || 0;
+  const sigBadge = document.getElementById('signals-badge');
+  if (sigBadge) sigBadge.textContent = pendingSigs;
+}
+
+/* ═══════════════════════════════════════
+   Launch Modal
+   ═══════════════════════════════════════ */
+function showLaunchModal() {
+  if (!_launchFromSignalId) {
+    // Normal launch (not from signal) — reset title
+    const h3 = document.querySelector('#launch-modal .modal h3');
+    if (h3) h3.textContent = '🚀 Launch New Run';
+  }
+  const sel = document.getElementById('m-workflow');
+  sel.innerHTML = state.workflows.map(w => `<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
+  onWorkflowChange();
+  setNumRuns(1); // Reset to single run
+  document.getElementById('launch-modal').classList.add('show');
+}
+
+function hideLaunchModal() {
+  document.getElementById('launch-modal').classList.remove('show');
+  // Reset title if it was changed for signal launch
+  const h3 = document.querySelector('#launch-modal .modal h3');
+  if (h3) h3.textContent = '🚀 Launch New Run';
+  _launchFromSignalId = null;
+}
+
+function launchFromWorkflow(wfId) {
+  _launchFromSignalId = null;
+  showLaunchModal();
+  document.getElementById('m-workflow').value = wfId;
+  onWorkflowChange();
+}
+
+function onWorkflowChange() {
+  const wfId = document.getElementById('m-workflow').value;
+  const wf = state.workflows.find(w => w.id === wfId);
+  if (!wf) return;
+
+  // Auto-populate agent rows based on workflow stages
+  const rows = document.getElementById('agent-rows');
+  rows.innerHTML = '';
+
+  const stages = wf.stages || [];
+  const stageToRole = {plan:'planner', engineer:'engineer', review:'reviewer', security:'security', qa:'qa', merge:null};
+
+  for (const stage of stages) {
+    if (stage.name === 'merge') continue;
+    const role = stageToRole[stage.name] || stage.name;
+    const persona = state.personas.find(p => p.role === role);
+    if (!persona) continue;
+
+    // For review stages, add 3 parallel reviewers
+    if (stage.name === 'review') {
+      const rev1 = state.personas.find(p => p.role === 'reviewer');
+      const rev2 = state.personas.find(p => p.role === 'security');
+      const rev3 = state.personas.find(p => p.role === 'architect-reviewer');
+      if (rev1) addAgentRow(rev1.id, 'review', rev1.default_model);
+      if (rev2) addAgentRow(rev2.id, 'review', rev2.default_model);
+      if (rev3) addAgentRow(rev3.id, 'review', rev3.default_model);
+      // Add parallel badge after the review agents
+      const badge = document.createElement('div');
+      badge.style.cssText = 'font-size:11px;color:var(--green);padding:4px 8px;margin:4px 0;background:#c4f34a15;border-radius:4px;text-align:center';
+      badge.innerHTML = '🔀 Review agents run in <strong>parallel</strong> — each in own worktree, merged after';
+      rows.appendChild(badge);
+    } else {
+      addAgentRow(persona.id, stage.name, persona.default_model);
+    }
+  }
+}
+
+function addAgentRow(personaId, stageName, model) {
+  const rows = document.getElementById('agent-rows');
+  const idx = rows.children.length;
+
+  const div = document.createElement('div');
+  div.className = 'ac-row';
+  div.innerHTML = `
+    <div>
+      <label>Persona</label>
+      <select class="ar-persona" data-idx="${idx}">
+        ${state.personas.map(p => `<option value="${p.id}" ${p.id===personaId?'selected':''}>${p.icon} ${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <label>Stage</label>
+      <select class="ar-stage">
+        <option ${stageName==='plan'?'selected':''}>plan</option>
+        <option ${stageName==='engineer'?'selected':''}>engineer</option>
+        <option ${stageName==='review'?'selected':''}>review</option>
+        <option ${stageName==='security'?'selected':''}>security</option>
+        <option ${stageName==='qa'?'selected':''}>qa</option>
+      </select>
+    </div>
+    <div>
+      <label>Model</label>
+      <select class="ar-model">
+        <option ${model==='haiku'?'selected':''}>haiku</option>
+        <option ${model==='sonnet'?'selected':''}>sonnet</option>
+        <option ${model==='opus'?'selected':''}>opus</option>
+      </select>
+    </div>
+    <div class="ac-remove" onclick="this.parentElement.remove()">✕</div>`;
+  rows.appendChild(div);
+}
+
+function setNumRuns(n) {
+  state.numRuns = n;
+  document.querySelectorAll('.num-run-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.n) === n));
+  const info = document.getElementById('m-ensemble-info');
+  const costEns = document.getElementById('m-ensemble-cost');
+  const launchBtn = document.getElementById('m-launch-btn');
+  if (n > 1) {
+    info.style.display = 'block';
+    costEns.style.display = 'inline';
+    document.getElementById('m-n-label').textContent = n;
+    document.getElementById('m-n-cost-label').textContent = n;
+    const perRun = parseFloat(document.getElementById('m-est-cost').textContent.replace(/[~$]/g,'')) || 1.50;
+    document.getElementById('m-total-est').textContent = `~$${(perRun * n + 1.60).toFixed(2)}`;
+    if (launchBtn) launchBtn.textContent = `Launch ${n}× Ensemble 🎯`;
+  } else {
+    info.style.display = 'none';
+    costEns.style.display = 'none';
+    if (launchBtn) launchBtn.textContent = 'Launch Run 🚀';
+  }
+}
+
+async function launchRun() {
+  const wfId = document.getElementById('m-workflow').value;
+  const title = document.getElementById('m-title').value;
+  const task = document.getElementById('m-task').value;
+  const branch = document.getElementById('m-branch').value;
+
+  if (!title || !task) { alert('Title and task are required'); return; }
+
+  // Collect agent configs
+  const rows = document.querySelectorAll('#agent-rows .ac-row');
+  const configs = [];
+  rows.forEach(row => {
+    configs.push({
+      persona_id: row.querySelector('.ar-persona').value,
+      stage_name: row.querySelector('.ar-stage').value,
+      model: row.querySelector('.ar-model').value,
+    });
+  });
+
+  const autoApprove = document.getElementById('m-approve-mode').value === 'auto';
+  const baseBranch = document.getElementById('m-base-branch').value || 'main';
+  const numRuns = state.numRuns || 1;
+
+  try {
+    if (numRuns > 1) {
+      // Create ensemble (N parallel runs → consensus)
+      const ensemble = await api.post('/ensembles', {
+        workflow_id: wfId,
+        title: title,
+        task_description: task,
+        agent_configs: configs,
+        num_runs: numRuns,
+        base_branch: baseBranch,
+        auto_approve: autoApprove,
+        individual_prs: document.getElementById('m-individual-prs').checked,
+      });
+
+      await api.post('/ensembles/'+ensemble.id+'/start', {});
+      hideLaunchModal();
+      state.numRuns = 1; // reset
+      await refreshData();
+      // Auto-open the ensemble detail
+      showEnsembleInline(ensemble.id);
+    } else {
+      // Single run (original behavior)
+      const run = await api.post('/runs', {
+        workflow_id: wfId,
+        title: title,
+        task_description: task,
+        target_branch: branch,
+        agent_configs: configs,
+        auto_approve: autoApprove,
+        base_branch: baseBranch,
+      });
+
+      // Link signal if launched from one
+      if (_launchFromSignalId) {
+        try {
+          await api.post('/signals/' + _launchFromSignalId + '/link-run', { run_id: run.id });
+        } catch(e) { console.warn('Signal link failed:', e); }
+        _launchFromSignalId = null;
+      }
+
+      await api.post('/runs/'+run.id+'/start', {});
+      hideLaunchModal();
+      state.numRuns = 1; // reset
+      refreshData();
+    }
+  } catch(e) {
+    alert('Error creating run: '+e.message);
+  }
+}
+
+/* ═══════════════════════════════════════
+   Ensemble / Drift Detection
+   ═══════════════════════════════════════ */
+function renderEnsembles() {
+  // Ensembles are shown in the unified runs list via renderRuns()
+  // renderRuns() already calls loadEnsembleDetails() when activeEnsembleId is set
+  // So this is intentionally a no-op to avoid double-rendering
+}
+
+async function loadEnsembleDetails(id) {
+  const data = await api.get('/ensembles/'+id);
+  const main = document.getElementById('ensemble-detail-container');
+  if (!main) return;
+  state.activeEnsembleId = id;
+
+  // Child runs
+  const childRuns = state.runs.filter(r => (r.source_type === 'ensemble' && r.source_id === id) || r.ensemble_id === id);
+  childRuns.sort((a,b) => a.title.localeCompare(b.title));
+
+  // Fingerprint: only rebuild DOM if something actually changed
+  const fp = data.status + ':' + data.total_cost + ':' + (data.comparison ? 'comp' : 'no') + ':'
+    + childRuns.map(r => r.id+':'+r.status+':'+r.review_round+':'+r.total_cost
+      + ':' + (r.agents||[]).map(a=>a.status+':'+a.issues_found+(a.output_log||'').length).join('|')
+    ).join(',')
+    + ':tab:' + state.activeEnsembleTab;
+
+  if (main.dataset.fingerprint === fp) {
+    // Nothing changed — just refresh the active run tab's details without rebuilding
+    childRuns.forEach((r,i) => {
+      if (state.activeEnsembleTab === 'run-'+i) loadRunDetails(r.id);
+    });
+    return;
+  }
+  main.dataset.fingerprint = fp;
+
+  // Ensure valid tab
+  const validTabs = ['overview', ...childRuns.map((_,i) => 'run-'+i), 'comparison'];
+  if (!validTabs.includes(state.activeEnsembleTab)) state.activeEnsembleTab = 'overview';
+  const activeTab = state.activeEnsembleTab;
+
+  // ── Tab bar ──
+  const statusDot = (s) => {
+    const cls = {running:'running',pending:'pending',needs_approval:'running',converged:'done',merged:'done',failed:'failed'}[s]||'pending';
+    return `<span class="tab-dot ${cls}"></span>`;
+  };
+
+  let tabsHtml = `<div class="ens-tabs">
+    <div class="ens-tab ${activeTab==='overview'?'active':''}" onclick="switchEnsembleTab('overview')">📊 Overview</div>`;
+  childRuns.forEach((r,i) => {
+    tabsHtml += `<div class="ens-tab ${activeTab==='run-'+i?'active':''}" onclick="switchEnsembleTab('run-${i}')">
+      ${statusDot(r.status)} Run ${i+1}
+    </div>`;
+  });
+  const hasComparison = data.comparison && data.comparison.runs && data.comparison.runs.length;
+  tabsHtml += `<div class="ens-tab ${activeTab==='comparison'?'active':''}" onclick="switchEnsembleTab('comparison')">🔀 Comparison${hasComparison?' ✓':''}</div>`;
+  tabsHtml += '</div>';
+
+  // ── Overview tab ──
+  const isDone = data.status === 'done' && data.finished_at;
+  const pipeStages = [{n:'Parallel Runs',k:'runs'},{n:'Consensus',k:'consensus'},{n:'Review',k:'review'},{n:'PR',k:'pr'}];
+  const stageIdx = {running:0,pending:0,comparing:0,synthesizing:1,reviewing:2,done:3,failed:0}[data.status]||0;
+
+  let overviewHtml = `<div class="ens-tab-panel ${activeTab==='overview'?'active':''}" id="ens-panel-overview">`;
+
+  // Pipeline
+  overviewHtml += `<div class="pipeline-bar" style="margin-bottom:16px">${pipeStages.map((s,i) => {
+    const cls = isDone ? 'done' : i < stageIdx ? 'done' : i === stageIdx ? 'active' : '';
+    return `<div class="p-stage ${cls}"><div class="dot"></div><div class="label">${s.n}</div></div>`;
+  }).join('')}</div>`;
+
+  // Progress when running
+  if (data.status === 'running') {
+    const done = childRuns.filter(r => ['converged','merged'].includes(r.status)).length;
+    const running = childRuns.filter(r => r.status === 'running').length;
+    const pct = childRuns.length ? Math.round((done/childRuns.length)*100) : 0;
+    overviewHtml += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600;color:#fff">⚡ ${done}/${childRuns.length} runs complete</span>
+        <span style="font-size:11px;color:var(--blue)">${running} running in parallel</span>
+      </div>
+      <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--green),var(--blue));border-radius:3px;transition:width .5s"></div>
+      </div>
+    </div>`;
+  }
+
+  // Run summary cards (compact, clickable to switch tab)
+  overviewHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:16px">';
+  childRuns.forEach((r,i) => {
+    const statusColor = {pending:'var(--text3)',running:'var(--blue)',needs_approval:'var(--orange)',converged:'var(--green)',merged:'var(--green)',failed:'var(--red,#ff4444)'}[r.status]||'var(--text3)';
+    const agentCount = (r.agents||[]).length;
+    const reviewers = (r.agents||[]).filter(a => a.stage_name === 'review');
+    const revStatus = reviewers.length > 1
+      ? `🔀 ${reviewers.filter(a=>['done','converged'].includes(a.status)).length}/${reviewers.length}`
+      : '';
+
+    overviewHtml += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;cursor:pointer;border-left:3px solid ${statusColor};transition:border-color .2s"
+         onclick="switchEnsembleTab('run-${i}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-weight:600;color:#fff;font-size:13px">Run ${i+1}</span>
+        <span class="status-badge s-${r.status}" style="font-size:10px">${r.status}</span>
+      </div>
+      <div style="font-size:10px;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap">
+        <span>⏱${r.duration_minutes}m</span>
+        <span>💰$${r.total_cost.toFixed(2)}</span>
+        <span>🤖${agentCount}</span>
+        <span>🔄R${r.review_round}</span>
+        ${revStatus ? `<span>${revStatus}</span>` : ''}
+      </div>
+      <div style="font-size:9px;color:var(--text4);margin-top:4px">Click to inspect →</div>
+    </div>`;
+  });
+  overviewHtml += '</div>';
+
+  // Action buttons
+  const actionConfigs = {
+    comparing: {color:'var(--purple)',title:'⏸ All runs complete — start consensus synthesis?',
+      btn:`<button class="btn btn-sm btn-primary" onclick="approveEnsemble('${id}')">Start Consensus 🧮</button>`},
+    synthesizing: {color:'var(--orange)',title:'🧮 Consensus agent synthesizing...'},
+    reviewing: {color:'#22d3ee',title:'🔍 Consensus reviewer verifying...'},
+  };
+  if (actionConfigs[data.status]) {
+    const sc = actionConfigs[data.status];
+    overviewHtml += `<div class="checkpoint"><div class="beacon" style="border-color:${sc.color}">⏸</div>
+      <div class="cp-body"><div class="cp-title" style="color:${sc.color}">${sc.title}</div></div>
+      ${sc.btn?`<div class="cp-actions">${sc.btn}</div>`:''}
+    </div>`;
+  } else if (data.status === 'done' && !data.finished_at) {
+    overviewHtml += `<div class="checkpoint"><div class="beacon">🔀</div>
+      <div class="cp-body"><div class="cp-title">✅ Consensus complete — create PR?</div></div>
+      <div class="cp-actions"><button class="btn btn-sm btn-primary" onclick="ensemblePR('${id}')">Open PR 🚀</button></div>
+    </div>`;
+  } else if (isDone) {
+    overviewHtml += `<div style="background:#c4f34a10;border:1px solid #c4f34a33;border-radius:8px;padding:14px;text-align:center">
+      <div style="font-size:14px;font-weight:600;color:var(--green)">✅ Ensemble complete</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">${data.num_runs} runs → consensus → PR · $${(data.total_cost||0).toFixed(2)} · ${data.duration_minutes||0} min</div>
+    </div>`;
+  }
+  overviewHtml += '</div>';
+
+  // ── Run tabs (each embeds full run detail) ──
+  let runPanelsHtml = '';
+  childRuns.forEach((r,i) => {
+    const isActive = activeTab === 'run-'+i;
+    runPanelsHtml += `<div class="ens-tab-panel ${isActive?'active':''}" id="ens-panel-run-${i}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <span style="font-size:14px;font-weight:600;color:#fff">Run ${i+1}</span>
+          <span class="status-badge s-${r.status}" style="margin-left:8px">${r.status}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);display:flex;gap:10px">
+          <span>⏱ ${r.duration_minutes}m</span>
+          <span>💰 $${r.total_cost.toFixed(2)}</span>
+          <span>🔄 Round ${r.review_round}</span>
+          <span>🤖 ${(r.agents||[]).length} agents</span>
+        </div>
+      </div>
+      <div id="run-detail-${r.id}"></div>
+    </div>`;
+  });
+
+  // ── Comparison tab ──
+  let compPanelHtml = `<div class="ens-tab-panel ${activeTab==='comparison'?'active':''}" id="ens-panel-comparison">`;
+  const comp = data.comparison;
+  if (comp && comp.runs && comp.runs.length) {
+    // Comparison table
+    compPanelHtml += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div style="font-weight:600;color:#fff;margin-bottom:10px;font-size:14px">📊 Run Comparison</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:6px 8px;color:var(--text2)">Run</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text2)">Cost</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text2)">Duration</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text2)">Review Rounds</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text2)">Files Changed</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text2)">Total Issues</th>
+        </tr>
+        ${comp.runs.map((r,i) => {
+          const files = (r.diff_stat||'').split('\\n').filter(l=>l.trim()).length;
+          const issues = (r.agents||[]).filter(a=>a.stage==='review').reduce((s,a)=>s+(a.issues_found||0),0);
+          return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="switchEnsembleTab('run-${i}')">
+            <td style="padding:6px 8px;color:#fff;font-weight:500">Run ${i+1} <span style="font-size:10px;color:var(--text3)">→</span></td>
+            <td style="padding:6px 8px;text-align:right">$${(r.cost||0).toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right">${r.duration||0}m</td>
+            <td style="padding:6px 8px;text-align:right">${r.review_rounds||0}</td>
+            <td style="padding:6px 8px;text-align:right">${files}</td>
+            <td style="padding:6px 8px;text-align:right">${issues}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+    </div>`;
+
+    // Side-by-side convergence comparison
+    compPanelHtml += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div style="font-weight:600;color:#fff;margin-bottom:10px;font-size:14px">🔄 Convergence Comparison</div>
+      <div style="display:flex;gap:16px">
+        ${comp.runs.map((r,i) => {
+          const hist = r.review_history || (childRuns[i] ? (childRuns[i].review_history||[]) : []);
+          const maxI = Math.max(...hist.map(h=>h.issues), 1);
+          return `<div style="flex:1;text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+            <div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:8px">Run ${i+1}</div>
+            <div style="display:flex;gap:3px;justify-content:center;align-items:flex-end;height:60px">
+              ${hist.length ? hist.map(h => {
+                const pct = Math.max((h.issues/maxI)*100, 10);
+                const c = h.issues===0?'var(--green)':h.issues<=2?'var(--orange)':'var(--blue)';
+                return `<div style="width:24px;height:${pct}%;background:${c};border-radius:3px 3px 0 0;position:relative">
+                  <span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text2);font-weight:600">${h.issues}</span></div>`;
+              }).join('') : '<div style="color:var(--text3);font-size:10px">pending</div>'}
+            </div>
+            <div style="font-size:10px;color:${r.status==='converged'?'var(--green)':'var(--text3)'};margin-top:8px;font-weight:500">
+              ${r.status==='converged'?'✅ converged':'⏳ '+r.status}
+            </div>
+            <div style="font-size:10px;color:var(--text4);margin-top:2px">$${(r.cost||0).toFixed(2)} · ${r.duration||0}m</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+    // Per-reviewer breakdown across runs
+    compPanelHtml += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px">
+      <div style="font-weight:600;color:#fff;margin-bottom:10px;font-size:14px">🤖 Agent Breakdown</div>
+      ${comp.runs.map((r,i) => {
+        const agents = r.agents || [];
+        return `<div style="margin-bottom:10px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">Run ${i+1}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            ${agents.map(a => {
+              const c = {done:'var(--green)',converged:'var(--green)',running:'var(--blue)',failed:'var(--red,#ff4444)'}[a.status]||'var(--text3)';
+              return `<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:${c}15;border:1px solid ${c}30;color:${c}">
+                ${a.name.split(' ').slice(-1)[0]} · ${a.stage} · ${a.issues_found||0} issues · $${(a.cost||0).toFixed(2)}
+              </span>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  } else {
+    compPanelHtml += `<div style="text-align:center;padding:40px;color:var(--text3)">
+      <div style="font-size:24px;margin-bottom:8px">📊</div>
+      <div style="font-size:13px">Comparison data available after all runs finish</div>
+    </div>`;
+  }
+  compPanelHtml += '</div>';
+
+  // ── Assemble ──
+  main.innerHTML = `
+    <div class="run-detail">
+      <div style="margin-bottom:10px">
+        <button class="btn btn-sm" onclick="closeEnsembleDetail()" style="font-size:11px">← Back to list</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h2 style="font-size:18px;font-weight:600">🎯 ${data.title}</h2>
+        <span class="status-badge s-${data.status}">${data.status.toUpperCase()}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:4px">${data.task_description}</div>
+      <div style="font-size:11px;color:var(--text3);display:flex;gap:14px;margin-bottom:12px">
+        <span>⏱ ${data.duration_minutes||0} min</span>
+        <span>💰 $${(data.total_cost||0).toFixed(2)}</span>
+        <span>🎯 ${data.num_runs} parallel runs</span>
+        <span>${data.auto_approve?'🟢 Autopilot':'🛑 Manual'}</span>
+      </div>
+      ${tabsHtml}
+      ${overviewHtml}
+      ${runPanelsHtml}
+      ${compPanelHtml}
+    </div>`;
+
+  // Load run details for the active run tab
+  childRuns.forEach((r,i) => {
+    if (activeTab === 'run-'+i) {
+      loadRunDetails(r.id);
+    }
+  });
+  // No separate timer needed — the main 5s poll triggers renderRuns → loadEnsembleDetails
+}
+
+function switchEnsembleTab(tab) {
+  state.activeEnsembleTab = tab;
+  // Quick tab switch without full re-render
+  document.querySelectorAll('.ens-tab').forEach((t,i) => {
+    const tabNames = ['overview', ...Array.from({length:10},(_,j)=>'run-'+j), 'comparison'];
+    t.classList.toggle('active', t.textContent.trim().length > 0 && false); // will be set by re-render
+  });
+  // Just re-render the ensemble
+  if (state.activeEnsembleId) loadEnsembleDetails(state.activeEnsembleId);
+}
+
+async function approveEnsemble(id) {
+  await api.post('/ensembles/'+id+'/approve', {});
+  refreshData();
+}
+
+function showEnsembleInline(id) {
+  state.activeEnsembleId = id;
+  state.activeEnsembleTab = 'overview';
+  state._lastRunIds = ''; // force re-render when we come back
+  renderRuns(); // This will hide runs list and show ensemble detail
+}
+
+function closeEnsembleDetail() {
+  state.activeEnsembleId = null;
+  state.activeEnsembleTab = 'overview';
+  state._lastRunIds = ''; // force re-render of runs list
+  const main = document.getElementById('ensemble-detail-container');
+  if (main) main.dataset.fingerprint = ''; // clear fingerprint
+  renderRuns(); // This will show runs list and hide ensemble detail
+}
+
+async function ensemblePR(id) {
+  await api.post('/ensembles/'+id+'/pr', {});
+  refreshData();
+}
+
+/* ═══════════════════════════════════════
+   Init
+   ═══════════════════════════════════════ */
+init();
+/* ═══════════════════════════════════════
+   Signals
+   ═══════════════════════════════════════ */
+
+async function loadSignals(loadMore = false) {
+  try {
+    const offset = loadMore ? state.signals.length : 0;
+    const resp = await api.get('/signals?limit=50&offset=' + offset);
+    if (loadMore) {
+      state.signals = state.signals.concat(resp.signals || []);
+    } else {
+      state.signals = resp.signals || [];
+    }
+    state.signalTotal = resp.total || 0;
+  } catch(e) {
+    console.error('Load signals error:', e);
+    // Backwards compat: if response is an array (old API), handle it
+    if (Array.isArray(e)) { state.signals = e; state.signalTotal = e.length; }
+  }
+  renderSignals();
+}
+
+function renderSignals() {
+  const list = document.getElementById('sig-list');
+  const count = document.getElementById('sig-count');
+  if (!list) return;
+
+  let filtered = state.signals || [];
+  if (state.signalFilter !== 'all') {
+    filtered = filtered.filter(s => s.source === state.signalFilter);
+  }
+
+  // Show filtered count / total
+  if (state.signalFilter === 'all') {
+    count.textContent = state.signalTotal || filtered.length;
+  } else {
+    count.textContent = filtered.length;
+  }
+
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty" style="padding:40px 20px"><div class="icon">📋</div><div class="title">No tasks yet</div><div style="font-size:11px;color:var(--text3);margin-top:6px">Create a manual task or connect Shortcut/GitHub/Sentry to import them</div></div>';
+    return;
+  }
+
+  const sourceIcons = {sentry:'🐛',shortcut:'🎯',github:'🔗',manual:'✏️',scan:'🔬'};
+  const sourceLabels = {sentry:'SENTRY',shortcut:'SHORTCUT',github:'GITHUB',manual:'MANUAL',scan:'SCAN'};
+
+  let html = filtered.map(s => {
+    const isActive = s.id === state.activeSignalId;
+    const timeAgo = getTimeAgo(s.created_at);
+    const icon = sourceIcons[s.source] || '📋';
+    const label = sourceLabels[s.source] || s.source.toUpperCase();
+    const sevClass = 'sev-' + (s.severity || 'medium');
+    const stClass = 'st-' + (s.status || 'new');
+
+    const isInvestigating = _triagingSignals.has(s.id);
+
+    return `<div class="sig-item${isActive?' active':''}${isInvestigating?' investigating':''}" onclick="selectSignal('${s.id}')"
+      ${isInvestigating ? 'style="border-left:3px solid var(--orange);animation:investigatePulse 2s ease infinite"' : ''}>
+      <div class="si-top">
+        <span class="si-src src-${s.source}">${icon} ${label}</span>
+        <span class="si-severity ${sevClass}">${(s.severity||'medium').toUpperCase()}</span>
+        ${s.source_id ? `<span style="font-size:8px;color:var(--text4);font-family:'SF Mono',monospace">${s.source_id}</span>` : ''}
+        <span class="si-time">${timeAgo}</span>
+      </div>
+      <div class="si-title">${esc(s.title)}</div>
+      <div class="si-summary">${esc(cleanSummary(s.summary, s.title))}${s.raw_payload && s.raw_payload.story_type ? ' <span style="font-size:8px;color:var(--purple);opacity:.7">[' + s.raw_payload.story_type + ']</span>' : ''}${s.raw_payload && s.raw_payload.workflow_state_name ? ' <span style="font-size:8px;color:var(--blue);opacity:.7">[' + s.raw_payload.workflow_state_name + ']</span>' : ''}</div>
+      ${isInvestigating ? '<span style="font-size:9px;color:var(--orange);font-weight:600">🔄 Investigating...</span>' : `<span class="si-status ${stClass}">${s.status}</span>`}
+      ${s.run_id ? '<span style="font-size:8px;color:var(--green);margin-left:4px">⚡ run linked</span>' : ''}
+    </div>`;
+  }).join('');
+
+  // Load More button
+  const loaded = state.signals.length;
+  const total = state.signalTotal;
+  if (loaded < total && state.signalFilter === 'all') {
+    html += `<div style="padding:12px;text-align:center">
+      <button onclick="loadSignals(true)" style="padding:6px 16px;border-radius:5px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit">
+        Load more (${loaded} of ${total})
+      </button>
+    </div>`;
+  }
+
+  list.innerHTML = html;
+}
+
+function filterSigs(source, el) {
+  document.querySelectorAll('.sig-filter').forEach(f => f.classList.remove('active'));
+  if (el) el.classList.add('active');
+  state.signalFilter = source;
+  renderSignals();
+}
+
+function getTimeAgo(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function cleanSummary(summary, title) {
+  if (!summary) return '';
+  // Strip "feature: Title" / "bug: Title" / "chore: Title" patterns that just repeat the title
+  const stripped = summary.replace(/^(feature|bug|chore|task|story):\s*/i, '').trim();
+  if (stripped === title || stripped === title.trim()) return '';
+  // If it starts with the exact title, show what's after it
+  if (stripped.startsWith(title)) return stripped.substring(title.length).trim();
+  return summary;
+}
+
+async function selectSignal(id) {
+  state.activeSignalId = id;
+  renderSignals(); // Update active state in feed
+
+  // Update URL hash
+  history.pushState(null, '', '#tasks/' + id);
+
+  // Show chat panel
+  document.getElementById('sig-chat-empty').style.display = 'none';
+  document.getElementById('sig-chat-active').style.display = 'flex';
+
+  // Show/hide loading state if this signal is being triaged
+  const loading = document.getElementById('sig-loading');
+  const triageBtn = document.getElementById('sig-investigate-btn');
+  if (_triagingSignals.has(id)) {
+    loading.classList.add('show');
+    triageBtn.disabled = true;
+  } else {
+    loading.classList.remove('show');
+    triageBtn.disabled = false;
+  }
+
+  // Load signal data
+  try {
+    const signal = await api.get('/signals/' + id);
+    renderSignalChat(signal);
+  } catch(e) {
+    console.error('Load signal error:', e);
+  }
+}
+
+function renderSignalChat(signal) {
+  _currentChatSignal = signal;  // Store for run preview
+  const sourceIcons = {sentry:'🐛',shortcut:'🎯',github:'🔗',manual:'✏️',scan:'🔬'};
+  document.getElementById('sig-chat-icon').textContent = sourceIcons[signal.source] || '📋';
+  document.getElementById('sig-chat-title').textContent = signal.title;
+
+  const srcEl = document.getElementById('sig-chat-source');
+  srcEl.textContent = (signal.source_id || signal.source).toUpperCase();
+  srcEl.className = 'si-src src-' + signal.source;
+
+  const sevEl = document.getElementById('sig-chat-severity');
+  sevEl.textContent = (signal.severity || 'medium').toUpperCase();
+  sevEl.className = 'si-severity sev-' + (signal.severity || 'medium');
+
+  // Chat mode badge
+  const modeEl = document.getElementById('sig-chat-mode');
+  if (currentSettings && modeEl) {
+    const cm = currentSettings.chat_mode || 'none';
+    if (cm === 'api') { modeEl.textContent = '⚡ API'; modeEl.style.background = 'var(--blue)22'; modeEl.style.color = 'var(--blue)'; }
+    else if (cm === 'cli') { modeEl.textContent = '🖥️ CLI'; modeEl.style.background = 'var(--green-bg)'; modeEl.style.color = 'var(--green)'; }
+    else { modeEl.textContent = '⚠️ NO AI'; modeEl.style.background = 'var(--orange)22'; modeEl.style.color = 'var(--orange)'; }
+  }
+
+  // Render messages
+  const msgs = signal.chat_messages || [];
+  const container = document.getElementById('sig-msgs');
+
+  // Build signal context card (shown at top always)
+  let raw = signal.raw_payload || {};
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch(e) { raw = {}; } }
+  let filesHint = [];
+  try { filesHint = JSON.parse(signal.files_hint || '[]'); } catch(e) {}
+  const url = raw.html_url || raw.app_url || raw.url || '';
+  const storyType = raw.story_type || '';
+  const labels = raw.labels || [];
+  const user = raw.user || '';
+  const tasks = raw.tasks || [];
+
+  // Show initial context card, then enrich for Shortcut signals
+  const contextHtml = buildContextCardHtml(signal, {url, storyType, labels, user, tasks, filesHint, description: signal.summary || '', comments: [], customFields: []});
+  container.innerHTML = contextHtml + (msgs.length ? '' : `<div style="text-align:center;padding:20px;color:var(--text4)">
+      <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this task, or type a message to ask something specific.</div>
+    </div>`);
+
+  // Fetch enriched details for Shortcut signals
+  const scMatch = signal.source === 'shortcut' && signal.source_id ? signal.source_id.match(/SC-(\d+)/) : null;
+  const ghMatch = signal.source === 'github' && signal.source_id ? signal.source_id.match(/GH-(\d+)/) : null;
+  if (scMatch) {
+    fetchShortcutDetails(scMatch[1], signal, msgs);
+  } else if (ghMatch && raw.repo) {
+    fetchGitHubDetails(raw.repo, ghMatch[1], signal, msgs);
+  } else if (msgs.length) {
+    container.innerHTML = contextHtml + renderChatMessages(msgs, signal);
+    scrollChatToBottom();
+  }
+}
+
+function buildContextCardHtml(signal, details) {
+  const sourceIcons = {sentry:'🐛',shortcut:'🎯',github:'🔗',manual:'✏️',scan:'🔬'};
+  const {url, storyType, labels, user, tasks, filesHint, description, comments, customFields} = details;
+
+  let descText = description || '';
+  // Clean up "feature: Title" fallback — show nothing instead
+  if (descText.match(/^(feature|bug|chore): /i) && descText.replace(/^(feature|bug|chore): /i, '').trim() === signal.title.trim()) {
+    descText = '';
+  }
+
+  return `<div style="margin:8px 12px 12px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+      <span style="font-size:14px">${sourceIcons[signal.source] || '📋'}</span>
+      <span style="font-size:12px;font-weight:600;color:#fff;flex:1">${esc(signal.title)}</span>
+      ${url ? `<a href="${esc(url)}" target="_blank" style="font-size:9px;color:var(--blue);text-decoration:none;padding:2px 6px;border-radius:3px;background:var(--blue)11;border:1px solid var(--blue)33">↗ Open</a>` : ''}
+    </div>
+    ${storyType ? `<div style="margin-bottom:6px"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);font-family:'SF Mono',monospace">${esc(storyType)}</span></div>` : ''}
+    ${labels.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${labels.map(l => `<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:var(--bg2);border:1px solid var(--border);color:var(--text3)">${esc(typeof l === 'string' ? l : l.name || '')}</span>`).join('')}</div>` : ''}
+    ${customFields && customFields.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${customFields.map(cf => `<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:var(--orange)11;border:1px solid var(--orange)33;color:var(--orange)">${esc(cf.value)}</span>`).join('')}</div>` : ''}
+    ${descText ? `<div style="font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:6px;white-space:pre-wrap;max-height:150px;overflow-y:auto">${esc(descText.substring(0, 800))}</div>` : ''}
+    ${user ? `<div style="font-size:10px;color:var(--text4)">by <strong>${esc(user)}</strong></div>` : ''}
+    ${filesHint.length ? `<div style="margin-top:6px;font-size:10px;color:var(--text4)">📁 ${filesHint.map(f => '<code style="font-size:9px;background:var(--bg2);padding:1px 4px;border-radius:2px;color:#22d3ee">' + esc(f) + '</code>').join(', ')}</div>` : ''}
+    ${tasks.length ? `<div style="margin-top:8px;font-size:10px;color:var(--text3)">
+      <strong style="color:var(--text4)">Tasks:</strong>
+      ${tasks.slice(0, 8).map(t => {
+        const desc = typeof t === 'string' ? t : t.description || '';
+        const done = typeof t === 'object' && t.complete;
+        return `<div style="margin-top:2px;padding-left:8px;color:${done ? 'var(--text4)' : 'var(--text2)'}">${done ? '✅' : '☐'} ${esc(desc)}</div>`;
+      }).join('')}
+      ${tasks.length > 8 ? `<div style="padding-left:8px;color:var(--text4)">+${tasks.length - 8} more</div>` : ''}
+    </div>` : ''}
+    ${comments && comments.length ? `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="font-size:10px;font-weight:600;color:var(--text4);margin-bottom:6px">💬 Comments (${comments.length})</div>
+      ${comments.slice(0, 5).map(c => `<div style="margin-bottom:6px;padding:6px 8px;background:var(--bg2);border-radius:4px;border-left:2px solid var(--blue)33">
+        <div style="font-size:10px;color:var(--text2);line-height:1.4;white-space:pre-wrap">${esc((c.text || '').substring(0, 300))}</div>
+        <div style="font-size:8px;color:var(--text4);margin-top:2px">${c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
+      </div>`).join('')}
+      ${comments.length > 5 ? `<div style="font-size:9px;color:var(--text4)">+${comments.length - 5} more comments — open in Shortcut to see all</div>` : ''}
+    </div>` : ''}
+  </div>`;
+}
+
+async function fetchShortcutDetails(storyId, signal, msgs) {
+  const container = document.getElementById('sig-msgs');
+  try {
+    const details = await api.get('/shortcut/story/' + storyId);
+    const url = details.app_url || '';
+    const contextHtml = buildContextCardHtml(signal, {
+      url,
+      storyType: details.story_type || '',
+      labels: details.labels || [],
+      user: '',
+      tasks: details.tasks || [],
+      filesHint: [],
+      description: details.description || '',
+      comments: details.comments || [],
+      customFields: details.custom_fields || [],
+    });
+
+    if (msgs.length) {
+      container.innerHTML = contextHtml + renderChatMessages(msgs, signal);
+    } else {
+      container.innerHTML = contextHtml + `<div style="text-align:center;padding:20px;color:var(--text4)">
+        <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this task, or type a message to ask something specific.</div>
+      </div>`;
+    }
+    scrollChatToBottom();
+  } catch(e) {
+    console.error('[Shortcut] Enrichment failed:', e);
+    if (msgs.length) {
+      container.innerHTML += renderChatMessages(msgs, signal);
+      scrollChatToBottom();
+    }
+  }
+}
+
+async function fetchGitHubDetails(repo, number, signal, msgs) {
+  const container = document.getElementById('sig-msgs');
+  const [owner, repoName] = repo.split('/');
+  try {
+    const details = await api.get('/github/issue/' + owner + '/' + repoName + '/' + number);
+    const contextHtml = buildContextCardHtml(signal, {
+      url: details.html_url || '',
+      storyType: '',
+      labels: details.labels || [],
+      user: details.user || '',
+      tasks: [],
+      filesHint: [],
+      description: details.body || '',
+      comments: details.comments || [],
+      customFields: [],
+    });
+
+    if (msgs.length) {
+      container.innerHTML = contextHtml + renderChatMessages(msgs, signal);
+    } else {
+      container.innerHTML = contextHtml + `<div style="text-align:center;padding:20px;color:var(--text4)">
+        <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this task, or type a message to ask something specific.</div>
+      </div>`;
+    }
+    scrollChatToBottom();
+  } catch(e) {
+    if (msgs.length) {
+      container.innerHTML += renderChatMessages(msgs, signal);
+      scrollChatToBottom();
+    }
+  }
+}
+
+function renderChatMessages(msgs, signal) {
+  let html = msgs.map(m => {
+    // Skip system messages (tool call metadata) — but extract tool info
+    if (m.role === 'system') {
+      try {
+        const data = JSON.parse(m.content);
+        if (data.type === 'tool_calls' && data.calls) {
+          return `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;padding:4px 34px;">
+            ${data.calls.map(c => {
+              const icon = {read_file:'📖',list_directory:'📁',search_files:'🔍',run_command:'⚡',propose_run:'🚀'}[c.tool] || '🔧';
+              const inputStr = typeof c.input === 'object' ? (c.input.path || c.input.pattern || c.input.command || c.input.title || '').substring(0, 40) : '';
+              return `<span class="tool-badge">${icon} ${c.tool}${inputStr ? ': '+esc(inputStr) : ''}</span>`;
+            }).join('')}
+          </div>`;
+        }
+      } catch(e) {}
+      return '';
+    }
+
+    const isHuman = m.role === 'user';
+    const cls = isHuman ? 'msg-human' : 'msg-ai';
+    const avatar = isHuman ? '👤' : '🤖';
+
+    // Strip JSON proposals from raw content BEFORE escaping (quotes aren't escaped yet)
+    let rawContent = m.content || '';
+    // Strip code-fenced proposals
+    rawContent = rawContent.replace(/```json[\s\S]*?PROPOSED_RUN[\s\S]*?```/g, '');
+    // Strip bare JSON proposals (balanced brace extraction)
+    if (rawContent.includes('PROPOSED_RUN')) {
+      const idx = rawContent.indexOf('PROPOSED_RUN');
+      let start = rawContent.lastIndexOf('{', idx);
+      if (start !== -1) {
+        let depth = 0, end = -1;
+        for (let i = start; i < rawContent.length; i++) {
+          if (rawContent[i] === '{') depth++;
+          else if (rawContent[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+        }
+        if (end !== -1) rawContent = rawContent.substring(0, start) + rawContent.substring(end);
+      }
+    }
+
+    // Format content (basic markdown-ish)
+    let content = esc(rawContent);
+
+    // Headers
+    content = content.replace(/^### (.*?)$/gm, '<div style="font-size:12px;font-weight:700;color:#fff;margin:10px 0 4px">$1</div>');
+    content = content.replace(/^## (.*?)$/gm, '<div style="font-size:13px;font-weight:700;color:#fff;margin:12px 0 6px">$1</div>');
+    // Bold
+    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Code blocks
+    content = content.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:8px 10px;border-radius:4px;font-size:10px;overflow-x:auto;margin:6px 0;border:1px solid var(--border)"><code>$2</code></pre>');
+    // Inline code
+    content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Line breaks
+    content = content.replace(/\n/g, '<br>');
+
+    // Clean up empty lines from stripped proposals
+    content = content.replace(/(<br>\s*){3,}/g, '<br><br>');
+
+    if (!content.trim()) return '';  // Skip empty messages after stripping
+
+    return `<div class="sig-msg ${cls}">
+      <div class="msg-av">${avatar}</div>
+      <div class="msg-body">
+        <div class="msg-txt">${content}</div>
+        <div class="msg-time">${m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // If there's a proposed run, show the card
+  if (signal.proposed_run && signal.proposed_run.workflow_name) {
+    const p = signal.proposed_run;
+    html += `<div class="run-proposal" style="margin:12px 34px;">
+      <div class="rp-header">
+        <span class="rp-title">🚀 Proposed Run</span>
+        <span class="rp-wf">${p.workflow_name || 'Workflow'}</span>
+        ${p.model ? `<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:var(--bg3);color:var(--text3);font-family:'SF Mono',monospace">${p.model}</span>` : ''}
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">${esc(p.title || '')}</div>
+      <div class="rp-desc">${esc(p.task_description || '')}</div>
+      <div class="rp-actions">
+        <button class="rp-btn rp-btn-go" onclick="createRunFromSignal('${signal.id}', true)">🚀 Run — auto-approve</button>
+        <button class="rp-btn rp-btn-alt" onclick="createRunFromSignal('${signal.id}', false)">Run with checkpoints</button>
+      </div>
+    </div>`;
+  }
+
+  return html;
+}
+
+// After rendering, scroll to bottom
+function scrollChatToBottom() {
+  const container = document.getElementById('sig-msgs');
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+// ── Unified Investigate Button ──
+function updateInvestigateBtn() {
+  const input = document.getElementById('sig-input-text');
+  const btn = document.getElementById('sig-investigate-btn');
+  if (!btn) return;
+  const hasText = input && input.value.trim().length > 0;
+  btn.innerHTML = hasText ? '→ Send' : '🔍 Investigate';
+  btn.title = hasText ? 'Send message to AI' : 'AI investigates the task';
+}
+
+async function investigate() {
+  if (!state.activeSignalId) return;
+
+  if (currentSettings && !currentSettings.chat_available) {
+    showNoChatMessage();
+    return;
+  }
+
+  const signalId = state.activeSignalId;
+  const input = document.getElementById('sig-input-text');
+  const message = input ? input.value.trim() : '';
+
+  // Already investigating this one?
+  if (_triagingSignals.has(signalId)) return;
+
+  // Clear input and show optimistic user message
+  if (message) {
+    input.value = '';
+    updateInvestigateBtn();
+
+    const container = document.getElementById('sig-msgs');
+    const emptyState = container.querySelector('div[style*="text-align:center"]');
+    if (emptyState) emptyState.remove();
+
+    container.innerHTML += `<div class="sig-msg msg-human">
+      <div class="msg-av">👤</div>
+      <div class="msg-body">
+        <div class="msg-txt">${esc(message)}</div>
+        <div class="msg-time">${new Date().toLocaleTimeString()}</div>
+      </div>
+    </div>`;
+    container.scrollTop = container.scrollHeight;
+  }
+
+  try {
+    const body = message ? { message } : {};
+    const result = await api.post('/signals/' + signalId + '/auto-triage', body);
+    if (result.error) {
+      if (result.error.includes('not configured') || result.error.includes('No AI backend')) { showNoChatMessage(); return; }
+      throw new Error(result.error);
+    }
+
+    if (result.status === 'started' || result.status === 'already_running') {
+      _triagingSignals.add(signalId);
+      renderSignals();
+      // Show spinner if still viewing this signal
+      if (state.activeSignalId === signalId) {
+        document.getElementById('sig-loading').classList.add('show');
+        document.getElementById('sig-investigate-btn').disabled = true;
+      }
+      startTriagePoll();
+    }
+  } catch(e) {
+    if (e.message && (e.message.includes('not configured') || e.message.includes('No AI backend'))) { showNoChatMessage(); return; }
+    alert('Investigation error: ' + e.message);
+  }
+}
+
+// ── Background Triage System ──
+const _triagingSignals = new Set();  // Track which signals are being investigated
+let _triagePollTimer = null;
+
+function startTriagePoll() {
+  if (_triagePollTimer) return;  // Already polling
+  _triagePollTimer = setInterval(pollTriageStatus, 2000);
+}
+
+function stopTriagePoll() {
+  if (_triagePollTimer) {
+    clearInterval(_triagePollTimer);
+    _triagePollTimer = null;
+  }
+}
+
+async function pollTriageStatus() {
+  if (_triagingSignals.size === 0) {
+    stopTriagePoll();
+    return;
+  }
+
+  try {
+    const statuses = await api.get('/signals/triage-status');
+
+    for (const [signalId, info] of Object.entries(statuses)) {
+      if (info.status === 'done') {
+        _triagingSignals.delete(signalId);
+        // Find the signal title for the toast
+        const sig = state.signals.find(s => s.id === signalId);
+        const title = sig ? sig.title : signalId;
+        showToast('✅ Investigation complete', title, signalId);
+
+        // If user is viewing this signal, refresh its chat
+        if (state.activeSignalId === signalId) {
+          document.getElementById('sig-loading').classList.remove('show');
+          document.getElementById('sig-investigate-btn').disabled = false;
+          const signal = await api.get('/signals/' + signalId);
+          renderSignalChat(signal);
+        }
+        // Update the card in list
+        renderSignals();
+      } else if (info.status === 'error') {
+        _triagingSignals.delete(signalId);
+        const sig = state.signals.find(s => s.id === signalId);
+        const title = sig ? sig.title : signalId;
+        showToast('⚠️ Investigation failed', info.error || title, signalId);
+
+        if (state.activeSignalId === signalId) {
+          document.getElementById('sig-loading').classList.remove('show');
+          document.getElementById('sig-investigate-btn').disabled = false;
+        }
+      }
+    }
+
+    if (_triagingSignals.size === 0) {
+      stopTriagePoll();
+    }
+  } catch(e) {
+    console.error('Triage poll error:', e);
+  }
+}
+
+// ── Toast Notifications ──
+function showToast(title, message, signalId) {
+  const container = document.getElementById('toast-container') || createToastContainer();
+  const toast = document.createElement('div');
+  toast.className = 'toast-notification';
+  toast.style.cssText = `
+    padding:14px 18px;background:var(--bg2);border:1px solid var(--green);border-radius:10px;
+    margin-bottom:8px;cursor:pointer;animation:slideIn .3s ease;
+    box-shadow:0 4px 24px rgba(0,0,0,.5), 0 0 12px var(--green)33;
+    max-width:360px;transition:opacity .3s;min-width:260px;
+  `;
+  toast.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <div style="font-size:13px;font-weight:700;color:#fff">${esc(title)}</div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(message)}</div>
+    <div style="font-size:9px;color:var(--text4);margin-top:4px">Click to view</div>
+  `;
+  toast.onclick = () => {
+    if (signalId) selectSignal(signalId);
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  };
+  container.appendChild(toast);
+
+  // Flash the browser tab title
+  const origTitle = document.title;
+  document.title = '✅ ' + message;
+  setTimeout(() => { document.title = origTitle; }, 5000);
+
+  // Auto-dismiss after 12 seconds
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 12000);
+}
+
+function createToastContainer() {
+  const el = document.createElement('div');
+  el.id = 'toast-container';
+  el.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:10000;display:flex;flex-direction:column-reverse;gap:8px';
+  document.body.appendChild(el);
+  return el;
+}
+
+function showNoChatMessage() {
+  const loading = document.getElementById('sig-loading');
+  if (loading) loading.classList.remove('show');
+  const btn = document.getElementById('sig-investigate-btn');
+  if (btn) btn.disabled = false;
+
+  const msgs = document.getElementById('sig-msgs');
+  if (!msgs) return;
+  msgs.innerHTML += `<div style="margin:16px 34px;padding:14px;border-radius:8px;border:1px solid var(--orange)44;background:var(--orange)08">
+    <div style="font-size:12px;font-weight:600;color:var(--orange);margin-bottom:6px">⚠️ No AI Backend Available</div>
+    <div style="font-size:11px;color:var(--text2);line-height:1.6">
+      AI investigation needs either an API key or Claude Code CLI.
+      <br><br>
+      <strong>Option 1 — Anthropic API:</strong><br>
+      <code style="font-size:10px;background:var(--bg);padding:2px 6px;border-radius:3px;color:#22d3ee">export ANTHROPIC_API_KEY=sk-ant-...</code>
+      <br><br>
+      <strong>Option 2 — Claude Code CLI:</strong><br>
+      <code style="font-size:10px;background:var(--bg);padding:2px 6px;border-radius:3px;color:#22d3ee">npm install -g @anthropic-ai/claude-code</code>
+      <br><br>
+      Then restart the app. <strong>You can still</strong> create tasks and manage your backlog.
+    </div>
+  </div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── Signal → Launch Modal (pre-filled) ──
+
+let _currentChatSignal = null;  // Set by renderSignalChat
+let _launchFromSignalId = null;  // Track if launch came from a signal
+
+function createRunFromSignal(signalId, autoApprove) {
+  const signal = _currentChatSignal;
+  if (!signal || !signal.proposed_run) {
+    alert('No run proposal found');
+    return;
+  }
+
+  _launchFromSignalId = signalId;
+  const p = signal.proposed_run;
+
+  // Open the standard launch modal
+  showLaunchModal();
+
+  // Pre-fill with proposal data — match workflow by name
+  const wfSel = document.getElementById('m-workflow');
+  const wfName = (p.workflow_name || '').toLowerCase();
+  for (const opt of wfSel.options) {
+    if (opt.textContent.toLowerCase().includes(wfName)) {
+      wfSel.value = opt.value;
+      break;
+    }
+  }
+  onWorkflowChange();
+
+  document.getElementById('m-title').value = p.title || signal.title || '';
+  document.getElementById('m-task').value = p.task_description || signal.summary || '';
+
+  // Set approval mode
+  document.getElementById('m-approve-mode').value = autoApprove ? 'auto' : 'manual';
+
+  // Set all agent models to the proposed model
+  const proposedModel = p.model || 'haiku';
+  setTimeout(() => {
+    document.querySelectorAll('#agent-rows .ar-model').forEach(sel => {
+      sel.value = proposedModel;
+    });
+  }, 50);
+
+  // Update modal title to show it came from a signal
+  const h3 = document.querySelector('#launch-modal .modal h3');
+  if (h3) {
+    h3.innerHTML = '🚀 Launch Run <span style="font-size:10px;padding:2px 6px;border-radius:3px;background:var(--green-bg);color:var(--green);margin-left:8px;font-weight:400">from signal</span>';
+  }
+}
+
+async function skipSignal() {
+  if (!state.activeSignalId) return;
+  if (!confirm('Skip this signal?')) return;
+  try {
+    await api.post('/signals/' + state.activeSignalId + '/skip', {});
+    await loadSignals();
+    // Deselect
+    state.activeSignalId = null;
+    document.getElementById('sig-chat-empty').style.display = 'flex';
+    document.getElementById('sig-chat-active').style.display = 'none';
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+function showNewSignalModal() {
+  document.getElementById('ns-title').value = '';
+  document.getElementById('ns-description').value = '';
+  document.getElementById('ns-severity').value = 'medium';
+  document.getElementById('ns-files').value = '';
+  document.getElementById('signal-modal').classList.add('show');
+  setTimeout(() => document.getElementById('ns-title').focus(), 100);
+}
+
+function hideSignalModal() {
+  document.getElementById('signal-modal').classList.remove('show');
+}
+
+async function submitNewSignal() {
+  const title = document.getElementById('ns-title').value.trim();
+  if (!title) { document.getElementById('ns-title').style.borderColor = 'var(--red)'; return; }
+
+  const description = document.getElementById('ns-description').value.trim();
+  const severity = document.getElementById('ns-severity').value;
+  const filesRaw = document.getElementById('ns-files').value.trim();
+  const files = filesRaw ? filesRaw.split(',').map(f => f.trim()).filter(Boolean) : [];
+
+  hideSignalModal();
+
+  try {
+    const signal = await api.post('/signals', {
+      title,
+      summary: description,
+      text: description || title,
+      severity,
+      files_hint: files,
+    });
+    await loadSignals();
+    selectSignal(signal.id);
+  } catch(e) {
+    alert('Error creating signal: ' + e.message);
+  }
+}
+
+/* ═══════════════════════════════════════
+   Integrations Page
+   ═══════════════════════════════════════ */
+
+async function loadIntegrations() {
+  let ghStatus = { running: false, repos: [], has_token: false };
+  let scStatus = { running: false, workspaces: [], has_token: false };
+  let sentryStatus = { running: false, projects: [], has_token: false };
+  try { ghStatus = await api.get('/github/status'); } catch(e) {}
+  try { scStatus = await api.get('/shortcut/status'); } catch(e) {}
+  try { sentryStatus = await api.get('/sentry/status'); } catch(e) {}
+
+  // Count signals by source
+  let signalCounts = { github: 0, sentry: 0, shortcut: 0, manual: 0 };
+  try {
+    signalCounts = await api.get('/signals/counts');
+  } catch(e) {}
+
+  const baseUrl = window.location.origin;
+  const container = document.getElementById('integrations-content');
+
+  container.innerHTML = `
+    <!-- GitHub Card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">🔗</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#fff">GitHub</div>
+          <div style="font-size:10px;color:var(--text3)">Issues from your repositories</div>
+        </div>
+        <span style="font-size:9px;padding:3px 8px;border-radius:4px;font-weight:600;font-family:'SF Mono',monospace;
+          background:${ghStatus.repos.length ? 'var(--green-bg)' : 'var(--bg3)'};
+          color:${ghStatus.repos.length ? 'var(--green)' : 'var(--text4)'}">
+          ${ghStatus.repos.length ? '● CONNECTED' : '○ NOT CONNECTED'}
+        </span>
+      </div>
+
+      <div style="padding:16px 18px;flex:1">
+        ${ghStatus.repos.length ? `
+          <div style="font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Connected Repos</div>
+          ${ghStatus.repos.map(r => `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--border);margin-bottom:6px">
+              <span style="font-size:13px">📦</span>
+              <span style="font-size:12px;font-weight:600;color:var(--text);flex:1">${r.owner}/${r.repo}</span>
+              <span style="font-size:10px;color:var(--green)">● polling</span>
+              <button onclick="removeGitHubRepo('${r.owner}','${r.repo}')" style="background:none;border:none;color:var(--text4);cursor:pointer;font-size:11px;padding:2px 4px" title="Disconnect">✕</button>
+            </div>
+          `).join('')}
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">
+            📊 ${signalCounts.github} task${signalCounts.github !== 1 ? 's' : ''} imported · polls every 2 min · issues only
+          </div>
+        ` : `
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:12px">
+            Polls GitHub for new issues every 2 minutes. Works on localhost — no webhooks needed.
+          </div>
+        `}
+
+        <div style="margin-top:12px;display:flex;gap:6px;align-items:end">
+          <div style="flex:1">
+            <label style="font-size:9px;color:var(--text4);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Owner / Org</label>
+            <input id="gh-owner" placeholder="e.g. sojoindustries" style="width:100%;padding:6px 9px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-size:11px;font-family:inherit">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:9px;color:var(--text4);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Repository</label>
+            <input id="gh-repo" placeholder="e.g. shield" style="width:100%;padding:6px 9px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-size:11px;font-family:inherit">
+          </div>
+          <button onclick="addGitHubRepo()" style="padding:6px 14px;border-radius:5px;background:var(--green);color:#000;border:none;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">+ Connect</button>
+        </div>
+        <div id="gh-error" style="display:none;font-size:10px;color:var(--red);padding:6px 8px;border-radius:4px;background:var(--red-bg);margin-top:6px"></div>
+      </div>
+
+      <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:6px;align-items:center">
+        <button onclick="pollGitHubNow()" style="padding:4px 10px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit">🔄 Poll Now</button>
+        <span style="flex:1"></span>
+        <span style="font-size:9px;color:${ghStatus.has_token ? 'var(--green)' : 'var(--text4)'}">
+          ${ghStatus.has_token ? '🔑 Token set' : '🔑 No token (public repos only)'}
+        </span>
+      </div>
+    </div>
+
+    <!-- Shortcut Card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">🎯</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#fff">Shortcut</div>
+          <div style="font-size:10px;color:var(--text3)">Stories and tasks</div>
+        </div>
+        <span style="font-size:9px;padding:3px 8px;border-radius:4px;font-weight:600;font-family:'SF Mono',monospace;
+          background:${scStatus.workspaces.length ? 'var(--green-bg)' : 'var(--bg3)'};
+          color:${scStatus.workspaces.length ? 'var(--green)' : 'var(--text4)'}">
+          ${scStatus.workspaces.length ? '● CONNECTED' : '○ NOT CONNECTED'}
+        </span>
+      </div>
+
+      <div style="padding:16px 18px;flex:1">
+        ${scStatus.workspaces.length ? `
+          <div style="font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Connected Workspaces</div>
+          ${scStatus.workspaces.map(w => `
+            <div style="background:var(--bg);border-radius:6px;border:1px solid var(--border);margin-bottom:6px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:8px;padding:8px 10px">
+                <span style="font-size:13px">🏢</span>
+                <span style="font-size:12px;font-weight:600;color:var(--text);flex:1">${esc(w.name)}</span>
+                <span style="font-size:10px;color:var(--green)">● polling</span>
+                <button onclick="disconnectShortcut('${esc(w.name)}')" style="background:none;border:none;color:var(--text4);cursor:pointer;font-size:11px;padding:2px 4px" title="Disconnect">✕</button>
+              </div>
+              <div style="padding:4px 10px 8px;display:flex;gap:4px;align-items:center">
+                <span style="font-size:9px;color:var(--text4)">Filter:</span>
+                <input value="${esc(w.query || '')}" placeholder="e.g. bug, feature, chore" onchange="updateShortcutQuery('${esc(w.name)}', this.value)"
+                  style="flex:1;padding:3px 6px;border-radius:3px;background:var(--bg2);border:1px solid var(--border);color:var(--text);font-size:9px;font-family:'SF Mono',monospace">
+              </div>
+            </div>
+          `).join('')}
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">
+            📊 ${signalCounts.shortcut} task${signalCounts.shortcut !== 1 ? 's' : ''} imported · polls every 2 min
+          </div>
+          ${scStatus.workflow_states ? `
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
+              ${scStatus.workflow_states.map(s => {
+                const colors = {backlog:'var(--text4)',unstarted:'var(--blue)',started:'var(--green)'};
+                const c = colors[s.type] || 'var(--text3)';
+                return `<span style="font-size:8px;padding:2px 6px;border-radius:3px;background:${c}11;border:1px solid ${c}33;color:${c};font-family:'SF Mono',monospace">${s.name}: ${s.count}</span>`;
+              }).join('')}
+            </div>
+            <div style="font-size:9px;color:var(--text4);margin-top:4px">Importing: To Do, In Progress, In Review, Ready for Testing, In Testing · Skipping: Backlog, Done</div>
+          ` : ''}
+        ` : `
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:12px">
+            Polls Shortcut for new stories every 2 minutes. Filter by type, state, labels, or any Shortcut search query.
+          </div>
+        `}
+
+        ${!scStatus.workspaces.length ? `
+          <button id="sc-connect-btn" onclick="connectShortcut()" style="padding:6px 14px;border-radius:5px;background:var(--green);color:#000;border:none;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:8px">+ Connect Workspace</button>
+        ` : ''}
+        <div id="sc-error" style="display:none;font-size:10px;color:var(--red);padding:6px 8px;border-radius:4px;background:var(--red-bg);margin-top:6px"></div>
+
+        ${!scStatus.workspaces.length ? `
+          <div style="margin-top:10px;font-size:10px;color:var(--text3);padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">
+            <strong style="color:var(--text4)">💡 Filter examples:</strong><br>
+            <code style="font-size:9px;color:#22d3ee">bug</code> — only bugs<br>
+            <code style="font-size:9px;color:#22d3ee">feature</code> — only features<br>
+            <code style="font-size:9px;color:#22d3ee">chore</code> — only chores<br>
+            Leave empty for all active stories.
+          </div>
+        ` : ''}
+      </div>
+
+      <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:6px;align-items:center">
+        ${scStatus.workspaces.length ? `
+          <button onclick="pollShortcutNow()" style="padding:4px 10px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit">🔄 Poll Now</button>
+          <button onclick="connectShortcut()" style="padding:4px 10px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit">+ Add Query</button>
+        ` : ''}
+        <span style="flex:1"></span>
+        <span style="font-size:9px;color:${scStatus.has_token ? 'var(--green)' : 'var(--text4)'}">
+          ${scStatus.has_token ? '🔑 Token set' : '🔑 No token — set SHORTCUT_API_TOKEN'}
+        </span>
+      </div>
+    </div>
+
+    <!-- Sentry Card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">🐛</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#fff">Sentry</div>
+          <div style="font-size:10px;color:var(--text3)">Errors and alerts</div>
+        </div>
+        <span style="font-size:9px;padding:3px 8px;border-radius:4px;font-weight:600;font-family:'SF Mono',monospace;
+          background:${sentryStatus.projects.length ? 'var(--green-bg)' : 'var(--bg3)'};
+          color:${sentryStatus.projects.length ? 'var(--green)' : 'var(--text4)'}">
+          ${sentryStatus.projects.length ? '● POLLING' : '○ NOT CONNECTED'}
+        </span>
+      </div>
+
+      <div style="padding:16px 18px;flex:1">
+        ${sentryStatus.projects.length ? `
+          <div style="font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Connected Projects</div>
+          ${sentryStatus.projects.map(p => `
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--bg);border-radius:5px;margin-bottom:4px">
+              <span style="font-size:10px;color:var(--green)">●</span>
+              <span style="font-size:11px;color:#fff;flex:1">${esc(p.org)}/${esc(p.project)}</span>
+              ${p.level_filter && p.level_filter.length ? '<span style="font-size:9px;color:var(--text4)">' + p.level_filter.join(', ') + '</span>' : ''}
+              <button onclick="disconnectSentry('${esc(p.org)}','${esc(p.project)}')" style="background:none;border:none;color:var(--text4);cursor:pointer;font-size:11px;padding:2px 4px" title="Disconnect">✕</button>
+            </div>
+          `).join('')}
+          ${signalCounts.sentry ? '<div style="font-size:10px;color:var(--green);margin-top:6px">📊 ' + signalCounts.sentry + ' signal' + (signalCounts.sentry !== 1 ? 's' : '') + ' imported</div>' : ''}
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button onclick="sentryPollNow()" style="padding:5px 10px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text2);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">🔄 Poll Now</button>
+            <button onclick="showSentryConnect()" style="padding:5px 10px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text2);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">+ Add Project</button>
+          </div>
+        ` : `
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">
+            Connect to Sentry to import errors and alerts. Pulls stack traces, file paths, severity, and frequency data.
+          </div>
+          ${!sentryStatus.has_token ? `
+            <div style="padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:8px">
+              <div style="font-size:10px;color:var(--text4);margin-bottom:4px">⚠️ Set environment variable first:</div>
+              <code style="font-size:10px;color:#22d3ee">export SENTRY_AUTH_TOKEN="sntrys_..."</code>
+              <div style="font-size:9px;color:var(--text4);margin-top:4px">Get one from: Settings → API Keys → Auth Tokens</div>
+            </div>
+          ` : ''}
+          <button id="sentry-connect-btn" onclick="showSentryConnect()" style="padding:6px 14px;border-radius:5px;background:var(--green);color:#000;border:none;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px;${!sentryStatus.has_token ? 'opacity:0.5' : ''}">+ Connect Project</button>
+        `}
+
+        <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+          <div style="font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Webhook URL (alternative)</div>
+          <div onclick="navigator.clipboard.writeText('${baseUrl}/api/signals/sentry');this.querySelector('.copy-ok').style.display='inline'" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <code style="font-size:9px;color:#22d3ee;flex:1;word-break:break-all">${baseUrl}/api/signals/sentry</code>
+            <span style="font-size:10px;color:var(--text4)">📋</span>
+            <span class="copy-ok" style="display:none;font-size:9px;color:var(--green)">copied!</span>
+          </div>
+        </div>
+
+        <!-- Sentry Connect Form (hidden) -->
+        <div id="sentry-connect-form" style="display:none;margin-top:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <div style="font-size:10px;color:var(--text4);margin-bottom:8px">Select organization and project:</div>
+          <div id="sentry-org-select" style="margin-bottom:6px">
+            <button onclick="loadSentryOrgs()" style="padding:5px 10px;border-radius:4px;background:var(--green);color:#000;border:none;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Load Organizations</button>
+          </div>
+          <div id="sentry-project-select" style="display:none;margin-bottom:6px"></div>
+          <div id="sentry-connect-actions" style="display:none;margin-top:8px">
+            <div style="font-size:10px;color:var(--text4);margin-bottom:4px">Filter by level (optional):</div>
+            <div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap">
+              <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px"><input type="checkbox" class="sentry-level" value="fatal"> fatal</label>
+              <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px"><input type="checkbox" class="sentry-level" value="error" checked> error</label>
+              <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px"><input type="checkbox" class="sentry-level" value="warning"> warning</label>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button onclick="connectSentryProject()" style="padding:5px 12px;border-radius:4px;background:var(--green);color:#000;border:none;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Connect</button>
+              <button onclick="document.getElementById('sentry-connect-form').style.display='none'" style="padding:5px 12px;border-radius:4px;background:var(--bg2);color:var(--text3);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual Card -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">✏️</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#fff">Manual</div>
+          <div style="font-size:10px;color:var(--text3)">Create tasks directly</div>
+        </div>
+        <span style="font-size:9px;padding:3px 8px;border-radius:4px;font-weight:600;font-family:'SF Mono',monospace;background:var(--green-bg);color:var(--green)">● ALWAYS ON</span>
+      </div>
+
+      <div style="padding:16px 18px;flex:1">
+        <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">
+          Paste bug reports, Slack threads, PRD excerpts — anything that might need engineering work. Click <strong style="color:var(--green)">+ New</strong> in the Tasks tab.
+        </div>
+        ${signalCounts.manual ? `<div style="font-size:10px;color:var(--green)">📊 ${signalCounts.manual} task${signalCounts.manual !== 1 ? 's' : ''} created</div>` : ''}
+        <button onclick="switchView('signals',document.querySelector('.nav-item'));showNewSignalModal()" style="margin-top:8px;padding:6px 14px;border-radius:5px;background:var(--green);color:#000;border:none;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">+ New Task</button>
+      </div>
+    </div>
+  `;
+
+  // Update badge
+  const totalConnected = (ghStatus.repos.length ? 1 : 0) + (scStatus.workspaces.length ? 1 : 0) + (sentryStatus.projects.length ? 1 : 0);
+  const badge = document.getElementById('integrations-badge');
+  if (totalConnected > 0) {
+    badge.textContent = totalConnected;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+
+/* ═══════════════════════════════════════
+   GitHub Poller
+   ═══════════════════════════════════════ */
+
+
+async function addGitHubRepo() {
+  const owner = document.getElementById('gh-owner').value.trim();
+  const repo = document.getElementById('gh-repo').value.trim();
+  const errEl = document.getElementById('gh-error');
+
+  if (!owner || !repo) {
+    errEl.textContent = 'Enter both owner and repo name';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  errEl.style.display = 'none';
+
+  try {
+    await api.post('/github/repos', { owner, repo });
+    document.getElementById('gh-owner').value = '';
+    document.getElementById('gh-repo').value = '';
+
+    // Import existing issues
+    try {
+      const imported = await api.post('/github/import', { owner, repo });
+      if (imported.imported > 0) {
+        loadSignals();
+      }
+    } catch(e) {}
+
+    // Refresh integrations page
+    loadIntegrations();
+
+  } catch(e) {
+    errEl.textContent = e.message || 'Failed to connect repo';
+    errEl.style.display = 'block';
+  }
+}
+
+async function removeGitHubRepo(owner, repo) {
+  try {
+    await fetch('/api/github/repos', {
+      method: 'DELETE',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ owner, repo }),
+    });
+    loadIntegrations();
+  } catch(e) {}
+}
+
+async function pollGitHubNow() {
+  try {
+    const result = await api.post('/github/poll', {});
+    if (result.created > 0) {
+      loadSignals();
+      loadIntegrations();
+    }
+    alert(result.created > 0 ? `✅ Found ${result.created} new issue(s)!` : 'No new issues found.');
+  } catch(e) {
+    alert('Poll error: ' + (e.message || e));
+  }
+}
+
+
+/* ═══════════════════════════════════════
+   Shortcut Poller
+   ═══════════════════════════════════════ */
+
+async function connectShortcut() {
+  const errEl = document.getElementById('sc-error');
+  if (errEl) errEl.style.display = 'none';
+
+  try {
+    await api.post('/shortcut/connect', { name: '', query: '' });
+
+    // Import existing stories
+    try {
+      const imported = await api.post('/shortcut/import', { query: '' });
+      if (imported.imported > 0) {
+        loadSignals();
+      }
+    } catch(e) {}
+
+    loadIntegrations();
+  } catch(e) {
+    if (errEl) {
+      errEl.textContent = e.message || 'Failed to connect';
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+async function disconnectShortcut(name) {
+  try {
+    await api.post('/shortcut/disconnect', { name });
+    loadIntegrations();
+  } catch(e) {}
+}
+
+async function updateShortcutQuery(name, query) {
+  try {
+    await api.post('/shortcut/query', { name, query });
+  } catch(e) {}
+}
+
+async function pollShortcutNow() {
+  try {
+    const result = await api.post('/shortcut/poll', {});
+    if (result.created > 0) {
+      loadSignals();
+      loadIntegrations();
+    }
+    alert(result.created > 0 ? `✅ Found ${result.created} new story/stories!` : 'No new stories found.');
+  } catch(e) {
+    alert('Poll error: ' + (e.message || e));
+  }
+}
+
+
+/*─────────────────────────────────────────────────────────────
+   Sentry Poller
+─────────────────────────────────────────────────────────────*/
+
+let _sentrySelectedOrg = '';
+let _sentrySelectedProject = '';
+
+function showSentryConnect() {
+  const form = document.getElementById('sentry-connect-form');
+  form.style.display = 'block';
+  document.getElementById('sentry-project-select').style.display = 'none';
+  document.getElementById('sentry-connect-actions').style.display = 'none';
+}
+
+async function loadSentryOrgs() {
+  const container = document.getElementById('sentry-org-select');
+  container.innerHTML = '<div style="font-size:10px;color:var(--text3)">Loading organizations...</div>';
+
+  try {
+    const data = await api.get('/sentry/orgs');
+    const orgs = data.organizations || [];
+
+    if (orgs.length === 0) {
+      container.innerHTML = '<div style="font-size:10px;color:var(--red)">No organizations found — check your token permissions</div>';
+      return;
+    }
+
+    container.innerHTML = '<div style="font-size:10px;color:var(--text4);margin-bottom:4px">Organization:</div>' +
+      orgs.map(o => `
+        <button onclick="_sentrySelectedOrg='${esc(o.slug)}';loadSentryProjects('${esc(o.slug)}');this.parentNode.querySelectorAll('button').forEach(b=>b.style.background='var(--bg2)');this.style.background='var(--green-bg)';this.style.color='var(--green)'"
+          style="padding:5px 10px;border-radius:4px;background:var(--bg2);color:var(--text2);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit;margin:2px">${esc(o.name || o.slug)}</button>
+      `).join('');
+  } catch(e) {
+    container.innerHTML = '<div style="font-size:10px;color:var(--red)">Error: ' + esc(e.error || e.message || String(e)) + '</div>';
+  }
+}
+
+async function loadSentryProjects(org) {
+  const container = document.getElementById('sentry-project-select');
+  container.style.display = 'block';
+  container.innerHTML = '<div style="font-size:10px;color:var(--text3)">Loading projects...</div>';
+
+  try {
+    const data = await api.get('/sentry/projects/' + org);
+    const projects = data.projects || [];
+
+    if (projects.length === 0) {
+      container.innerHTML = '<div style="font-size:10px;color:var(--text4)">No projects found in this org</div>';
+      return;
+    }
+
+    container.innerHTML = '<div style="font-size:10px;color:var(--text4);margin-bottom:4px">Project:</div>' +
+      '<div style="max-height:150px;overflow-y:auto">' +
+      projects.map(p => `
+        <button onclick="_sentrySelectedProject='${esc(p.slug)}';this.parentNode.querySelectorAll('button').forEach(b=>b.style.background='var(--bg2)');this.style.background='var(--green-bg)';this.style.color='var(--green)';document.getElementById('sentry-connect-actions').style.display='block'"
+          style="display:block;width:100%;text-align:left;padding:6px 10px;border-radius:4px;background:var(--bg2);color:var(--text2);border:1px solid var(--border);font-size:10px;cursor:pointer;font-family:inherit;margin:2px 0">
+          ${esc(p.name || p.slug)} ${p.platform ? '<span style="color:var(--text4);font-size:9px">(' + esc(p.platform) + ')</span>' : ''}
+        </button>
+      `).join('') + '</div>';
+  } catch(e) {
+    container.innerHTML = '<div style="font-size:10px;color:var(--red)">Error: ' + esc(e.error || e.message || String(e)) + '</div>';
+  }
+}
+
+async function connectSentryProject() {
+  if (!_sentrySelectedOrg || !_sentrySelectedProject) {
+    alert('Select an organization and project first');
+    return;
+  }
+
+  const levelFilter = Array.from(document.querySelectorAll('.sentry-level:checked')).map(cb => cb.value);
+
+  try {
+    await api.post('/sentry/connect', {
+      org: _sentrySelectedOrg,
+      project: _sentrySelectedProject,
+      level_filter: levelFilter,
+    });
+    document.getElementById('sentry-connect-form').style.display = 'none';
+    loadIntegrations();
+  } catch(e) {
+    alert('Connect error: ' + (e.error || e.message || String(e)));
+  }
+}
+
+async function disconnectSentry(org, project) {
+  try {
+    await api.post('/sentry/disconnect', { org, project });
+    loadIntegrations();
+  } catch(e) {}
+}
+
+async function sentryPollNow() {
+  try {
+    const result = await api.post('/sentry/poll', {});
+    if (result.created > 0) {
+      loadSignals();
+      loadIntegrations();
+    }
+    alert(result.created > 0 ? `✅ Found ${result.created} new issue(s)!` : 'No new issues found.');
+  } catch(e) {
+    alert('Poll error: ' + (e.error || e.message || String(e)));
+  }
+}
+
+
+</script>
+</body>
+</html>
