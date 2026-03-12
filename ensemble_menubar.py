@@ -371,13 +371,6 @@ def main():
         print("The menubar app only runs on macOS. Use 'python app.py' directly on other platforms.")
         sys.exit(1)
 
-    # Hide from Dock — menubar only
-    try:
-        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
-        NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-    except Exception:
-        pass
-
     # Check for first-run setup
     prefs = load_prefs()
     if not prefs.get("repo_path") or not get_api_key():
