@@ -3,9 +3,8 @@ AgentOps — Multi-Agent Workflow Dashboard
 Flask application entry point.
 """
 import os
-import signal
 import atexit
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, render_template
 from models import db
 from routes.api import api, init_services
 from seed import seed_all
