@@ -33,7 +33,7 @@ from typing import Optional
 # ── Aptabase config ──────────────────────────────────────────────────────────
 # Get your key from https://aptabase.com — create a project, copy the App Key
 APTABASE_APP_KEY = "A-US-6856289788"
-APTABASE_API_URL = "https://api.aptabase.com/v0/event"
+APTABASE_API_URL = "https://us.aptabase.com/api/v0/event"
 
 # ── Module state ─────────────────────────────────────────────────────────────
 _distinct_id: Optional[str] = None
@@ -50,9 +50,13 @@ def _get_distinct_id() -> str:
 
 def _get_system_props() -> dict:
     return {
-        "appVersion": _app_version,
+        "isDebug": False,
         "osName": platform.system(),
         "osVersion": platform.release(),
+        "locale": "en-US",
+        "appVersion": _app_version,
+        "appBuildNumber": "1",
+        "sdkVersion": "aptabase-py@0.0.1",
     }
 
 
@@ -108,7 +112,8 @@ def _send_event(event_name: str, props: dict):
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "sessionId": _distinct_id or "unknown",
         "eventName": event_name,
-        "props": {**_get_system_props(), **props},
+        "props": props,
+        "systemProps": _get_system_props(),
     }).encode("utf-8")
 
     req = urllib.request.Request(
