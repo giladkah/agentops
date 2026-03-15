@@ -8,6 +8,7 @@ import atexit
 from flask import Flask, render_template, send_from_directory
 from models import db
 from routes.api import api, init_services
+import services.repos as repos_svc
 from seed import seed_all
 import services.telemetry as telemetry
 
@@ -52,13 +53,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="AgentOps — Multi-Agent Dashboard")
-    parser.add_argument("--repo", type=str, default=os.getcwd(), help="Path to git repository")
+    parser.add_argument("--repo", action="append", dest="repos", metavar="PATH", help="Register a repo path (repeatable)")
     parser.add_argument("--port", type=int, default=5050, help="Port to run on")
     parser.add_argument("--api-key", type=str, default=None, help="Anthropic API key (or set ANTHROPIC_API_KEY)")
     parser.add_argument("--debug", action="store_true", help="Debug mode")
     args = parser.parse_args()
 
-    app = create_app(repo_path=args.repo, api_key=args.api_key)
+    app = create_app(repo_path=args.repos[0] if args.repos else None, api_key=args.api_key)
 
     # Track graceful shutdown
     atexit.register(telemetry.track_app_stopped)
@@ -66,7 +67,10 @@ if __name__ == "__main__":
     api_status = "✅ API key configured" if (args.api_key or os.environ.get("ANTHROPIC_API_KEY")) else "⚠️ No API key — set ANTHROPIC_API_KEY"
     telemetry_status = "✅ Telemetry enabled" if telemetry.is_enabled() else "⚪ Telemetry disabled (set AGENTOPS_TELEMETRY=true to enable)"
     print(f"\n🤖 AgentOps running at http://localhost:{args.port}")
-    print(f"📂 Repository: {args.repo}")
+    with app.app_context():
+        _def_repo = repos_svc.get_default()
+        if _def_repo:
+            print(f"📂 Active repo: {_def_repo.name} ({_def_repo.path})")
     print(f"🔑 {api_status}")
     print(f"🔌 Mode: Anthropic API + Tool Use + Streaming")
     print(f"📊 {telemetry_status}\n")

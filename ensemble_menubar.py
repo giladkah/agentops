@@ -384,5 +384,34 @@ def main():
     app.run()
 
 
+    @rumps.clicked("Add repository")
+    def add_repo_dialog(self, _):
+        """Add a new repository via dialog."""
+        n = rumps.Window(
+            message="Display name (e.g. shield-api):",
+            title="Add Repository", default_text="",
+            ok="Next", cancel="Cancel", dimensions=(300, 24),
+        ).run()
+        if not n.clicked or not n.text.strip():
+            return
+        p = rumps.Window(
+            message="Full local path to the git repo:",
+            title="Add Repository", default_text=os.path.expanduser("~/code/"),
+            ok="Add", cancel="Cancel", dimensions=(420, 24),
+        ).run()
+        if not p.clicked or not p.text.strip():
+            return
+        try:
+            import requests as _req
+            r = _req.post("http://localhost:5050/api/repos",
+                          json={"name": n.text.strip(), "path": p.text.strip()}, timeout=5)
+            if r.ok:
+                rumps.notification("Ensemble", "Repository added", n.text.strip())
+            else:
+                rumps.alert("Error: " + r.json().get("error", "unknown"))
+        except Exception as exc:
+            rumps.alert(f"Error: {exc}")
+
+
 if __name__ == "__main__":
     main()

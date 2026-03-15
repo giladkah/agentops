@@ -309,7 +309,38 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 .sig-loading{display:none;align-items:center;gap:6px;padding:8px 0;font-size:11px;color:var(--blue)}
 .sig-loading.show{display:flex}
 .sig-loading .ld-dot{width:6px;height:6px;border-radius:3px;background:var(--blue);animation:blink 1s infinite}
-</style>
+
+    /* ── Multi-repo styles ─────────────────────────────────────────────── */
+    .repo-section { padding: 6px 8px 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+    .repo-section-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; padding: 0 4px; }
+    .repo-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text-muted); transition: background 0.1s; }
+    .repo-item:hover { background: var(--hover); color: var(--text); }
+    .repo-item.active { background: rgba(59,109,17,0.1); color: var(--text); font-weight: 500; }
+    .repo-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .repo-name-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .repo-add-btn { display: flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 11px; color: var(--text-muted); cursor: pointer; border-radius: 6px; }
+    .repo-add-btn:hover { background: var(--hover); color: var(--text); }
+    .repo-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; flex-shrink: 0; }
+    .repo-picker-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+    .repo-picker-card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; cursor: pointer; transition: all 0.15s; }
+    .repo-picker-card:hover { border-color: var(--accent, #185FA5); }
+    .repo-picker-card.selected { border-color: var(--accent, #185FA5); background: rgba(24,95,165,0.08); }
+    .repo-picker-name { font-size: 12px; font-weight: 500; color: var(--text); margin-top: 2px; }
+    .repo-picker-path { font-size: 10px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .repo-color-blue   { background: #185FA5; }
+    .repo-color-green  { background: #3B6D11; }
+    .repo-color-purple { background: #534AB7; }
+    .repo-color-amber  { background: #BA7517; }
+    .repo-color-coral  { background: #993C1D; }
+    .repo-color-teal   { background: #0F6E56; }
+    .repo-color-pink   { background: #993556; }
+    .repo-filter-tabs  { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+    .repo-filter-tab   { font-size: 11px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer; color: var(--text-muted); transition: all 0.15s; display: flex; align-items: center; gap: 4px; }
+    .repo-filter-tab:hover { border-color: var(--accent, #185FA5); color: var(--text); }
+    .repo-filter-tab.active { background: rgba(24,95,165,0.1); border-color: var(--accent, #185FA5); color: var(--text); font-weight: 500; }
+    /* ── End multi-repo styles ─────────────────────────────────────────── */
+
+    </style>
 </head>
 <body>
 <div class="app">
@@ -320,6 +351,18 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
     </div>
     <div class="sidebar-nav">
       <div class="nav-section">Pipeline</div>
+      
+      <!-- ── Repo switcher (multi-repo) ──────────────────────── -->
+      <div class="repo-section" id="repo-sidebar-section">
+        <div class="repo-section-label">Repositories</div>
+        <div id="repo-sidebar-list"></div>
+        <div class="repo-add-btn" onclick="openAddRepoModal()">
+          <span style="font-size:14px;line-height:1;">+</span>
+          <span>Add repository</span>
+        </div>
+      </div>
+      <!-- ── End repo switcher ────────────────────────────────── -->
+
       <div class="nav-item" onclick="switchView('signals',this)">
         <span class="icon">📋</span> Tasks
         <span class="badge" id="signals-badge" style="background:var(--orange)22;color:var(--orange)">0</span>
@@ -1312,7 +1355,35 @@ async function viewAgentOutput(agentId) {
     .meta{color:#888;margin-bottom:16px;font-family:system-ui;font-size:13px}</style></head>
     <body><h2>${data.name}</h2>
     <div class="meta">Model: ${data.model} · Status: ${data.status} · Cost: $${(data.cost||0).toFixed(2)} · Duration: ${data.duration_minutes||0}m</div>
-    ${output.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</body></html>`);
+    ${output.replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+  <!-- ── Add Repository Modal ───────────────────────────────────── -->
+  <div id="addRepoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;" onclick="if(event.target===this)closeAddRepoModal()">
+    <div style="background:var(--bg,#fff);border:1px solid var(--border);border-radius:12px;width:400px;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <span style="font-size:15px;font-weight:600;color:var(--text);">Add repository</span>
+        <span style="cursor:pointer;font-size:18px;color:var(--text-muted);" onclick="closeAddRepoModal()">×</span>
+      </div>
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Display name</div>
+        <input id="repoNameInput" type="text" placeholder="e.g. shield-api" autocomplete="off"
+          style="width:100%;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;background:var(--bg-secondary,#f8f8f8);color:var(--text);box-sizing:border-box;" />
+      </div>
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Local path</div>
+        <input id="repoPathInput" type="text" placeholder="/Users/you/code/shield-api" autocomplete="off"
+          style="width:100%;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;background:var(--bg-secondary,#f8f8f8);color:var(--text);box-sizing:border-box;" />
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Must be a local git repository</div>
+      </div>
+      <div id="addRepoError" style="display:none;font-size:12px;color:#E24B4A;margin-bottom:10px;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
+        <button onclick="closeAddRepoModal()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;color:var(--text-muted);">Cancel</button>
+        <button onclick="submitAddRepo()" style="background:var(--accent,#185FA5);color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:12px;font-weight:500;cursor:pointer;">Add repository</button>
+      </div>
+    </div>
+  </div>
+  <!-- ── End Add Repository Modal ──────────────────────────────── -->
+
+</body></html>`);
 }
 
 /* ═══════════════════════════════════════
@@ -3266,6 +3337,173 @@ async function sentryPollNow() {
   }
 }
 
+
+
+
+// ════════════════════════════════════════════════════════════════════════
+// Multi-repo support
+// ════════════════════════════════════════════════════════════════════════
+
+var allRepos = [];
+var selectedRepoId = null;
+var activeRepoFilter = null;
+
+async function loadRepos() {
+  try {
+    var resp = await fetch('/api/repos');
+    allRepos = await resp.json();
+    renderRepoSidebar();
+    renderRepoFilterTabs();
+    renderRepoPicker();
+  } catch(e) { /* server might not be ready yet */ }
+}
+
+function renderRepoSidebar() {
+  var el = document.getElementById('repo-sidebar-list');
+  if (!el) return;
+  if (!allRepos.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:2px 8px;">No repos yet</div>';
+    return;
+  }
+  el.innerHTML = allRepos.map(function(r) {
+    return '<div class="repo-item ' + (r.is_default ? 'active' : '') + '" ' +
+           'onclick="setDefaultRepo(\'' + r.id + '\')" title="' + r.path + '">' +
+           '<div class="repo-dot repo-color-' + r.color + '"></div>' +
+           '<div class="repo-name-text">' + escHtml(r.name) + '</div>' +
+           (r.is_default ? '<span style="font-size:9px;opacity:0.6;">default</span>' : '') +
+           '</div>';
+  }).join('');
+}
+
+function renderRepoFilterTabs() {
+  var el = document.getElementById('repo-filter-tabs');
+  if (!el) return;
+  if (allRepos.length < 2) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = '<div class="repo-filter-tab ' + (!activeRepoFilter ? 'active' : '') + '" onclick="filterByRepo(null)">All repos</div>' +
+    allRepos.map(function(r) {
+      return '<div class="repo-filter-tab ' + (activeRepoFilter === r.id ? 'active' : '') + '" onclick="filterByRepo(\'' + r.id + '\')">' +
+             '<div class="repo-dot repo-color-' + r.color + '" style="width:6px;height:6px;"></div>' +
+             escHtml(r.name) + '</div>';
+    }).join('');
+}
+
+function filterByRepo(repoId) {
+  activeRepoFilter = repoId;
+  renderRepoFilterTabs();
+  if (typeof pollStatus === 'function') pollStatus();
+  if (typeof loadRuns === 'function') loadRuns();
+}
+
+function renderRepoPicker() {
+  var el = document.getElementById('repoPickerGrid');
+  if (!el) return;
+  if (!allRepos.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">No repos — add one in the sidebar.</div>';
+    return;
+  }
+  if (!selectedRepoId) {
+    var def = allRepos.find(function(r){ return r.is_default; }) || allRepos[0];
+    if (def) selectedRepoId = def.id;
+  }
+  el.innerHTML = allRepos.map(function(r) {
+    return '<div class="repo-picker-card ' + (selectedRepoId === r.id ? 'selected' : '') + '" ' +
+           'onclick="selectRepoPicker(\'' + r.id + '\')">' +
+           '<div style="display:flex;align-items:center;gap:6px;">' +
+           '<div class="repo-dot repo-color-' + r.color + '"></div>' +
+           '<div class="repo-picker-name">' + escHtml(r.name) + '</div></div>' +
+           '<div class="repo-picker-path">' + escHtml(r.path) + '</div></div>';
+  }).join('');
+}
+
+function selectRepoPicker(repoId) {
+  selectedRepoId = repoId;
+  document.querySelectorAll('.repo-picker-card').forEach(function(el) {
+    el.classList.toggle('selected', el.onclick && el.onclick.toString().includes(repoId));
+  });
+  renderRepoPicker();
+}
+
+function repoBadgeHtml(run) {
+  if (!run || !run.repo) return '';
+  var color = run.repo.color || 'blue';
+  var bgs = {blue:'#E6F1FB',green:'#EAF3DE',purple:'#EEEDFE',amber:'#FAEEDA',coral:'#FAECE7',teal:'#E1F5EE',pink:'#FBEAF0'};
+  var txts = {blue:'#185FA5',green:'#3B6D11',purple:'#534AB7',amber:'#BA7517',coral:'#993C1D',teal:'#0F6E56',pink:'#993556'};
+  return '<span class="repo-badge" style="background:' + (bgs[color]||'#F1EFE8') + ';color:' + (txts[color]||'#5F5E5A') + ';">' +
+         '<div class="repo-dot repo-color-' + color + '" style="width:5px;height:5px;"></div>' +
+         escHtml(run.repo.name) + '</span>';
+}
+
+function shouldShowRun(run) {
+  if (!activeRepoFilter) return true;
+  return run.repo_id === activeRepoFilter;
+}
+
+async function setDefaultRepo(repoId) {
+  try {
+    await fetch('/api/repos/' + repoId + '/set-default', { method: 'POST' });
+    await loadRepos();
+  } catch(e) { console.error(e); }
+}
+
+function openAddRepoModal() {
+  var m = document.getElementById('addRepoModal');
+  if (m) { m.style.display = 'flex'; }
+  var ni = document.getElementById('repoNameInput');
+  var pi = document.getElementById('repoPathInput');
+  if (ni) ni.value = '';
+  if (pi) pi.value = '';
+  var err = document.getElementById('addRepoError');
+  if (err) err.style.display = 'none';
+  setTimeout(function(){ if (ni) ni.focus(); }, 100);
+}
+
+function closeAddRepoModal() {
+  var m = document.getElementById('addRepoModal');
+  if (m) m.style.display = 'none';
+}
+
+async function submitAddRepo() {
+  var name = (document.getElementById('repoNameInput').value || '').trim();
+  var path = (document.getElementById('repoPathInput').value || '').trim();
+  var errEl = document.getElementById('addRepoError');
+  if (!name || !path) {
+    if (errEl) { errEl.textContent = 'Name and path are required.'; errEl.style.display = 'block'; }
+    return;
+  }
+  try {
+    var resp = await fetch('/api/repos', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, path: path})
+    });
+    var data = await resp.json();
+    if (!resp.ok) {
+      if (errEl) { errEl.textContent = data.error || 'Unknown error'; errEl.style.display = 'block'; }
+      return;
+    }
+    closeAddRepoModal();
+    await loadRepos();
+  } catch(e) {
+    if (errEl) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
+  }
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Load repos on page ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadRepos);
+} else {
+  loadRepos();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// End multi-repo support
+// ════════════════════════════════════════════════════════════════════════
 
 </script>
 </body>

@@ -9,6 +9,54 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+# Colors assigned round-robin to new repos
+REPO_COLORS = ["blue", "green", "purple", "amber", "coral", "teal", "pink"]
+
+
+class Repository(db.Model):
+    """A git repository that runs can target."""
+    __tablename__ = "repositories"
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = db.Column(db.String(100), nullable=False)          # display name, e.g. "shield"
+    path = db.Column(db.String(500), nullable=False, unique=True)  # absolute local path
+    color = db.Column(db.String(20), default="blue")          # badge color in UI
+    github_remote = db.Column(db.String(300), default="")     # auto-detected from git remote
+    is_default = db.Column(db.Boolean, default=False)         # default for new runs
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    run_count = db.Column(db.Integer, default=0)              # incremented on each run
+
+    # runs relationship defined via backref on Run.repository
+
+    @staticmethod
+    def get_default():
+        """Return the default repo, falling back to the first one."""
+        repo = Repository.query.filter_by(is_default=True).first()
+        if not repo:
+            repo = Repository.query.first()
+        return repo
+
+    @staticmethod
+    def set_default(repo_id: str):
+        Repository.query.filter_by(is_default=True).update({"is_default": False})
+        repo = db.session.get(Repository, repo_id)
+        if repo:
+            repo.is_default = True
+            db.session.commit()
+        return repo
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "path": self.path,
+            "color": self.color,
+            "github_remote": self.github_remote,
+            "is_default": self.is_default,
+            "run_count": self.run_count,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 class Setting(db.Model):
     """Key-value settings store."""
@@ -20,12 +68,12 @@ class Setting(db.Model):
 
     @staticmethod
     def get(key: str, default: str = "") -> str:
-        s = Setting.query.get(key)
+        s = db.session.get(Setting, key)
         return s.value if s else default
 
     @staticmethod
     def set(key: str, value: str):
-        s = Setting.query.get(key)
+        s = db.session.get(Setting, key)
         if s:
             s.value = value
             s.updated_at = datetime.now(timezone.utc)
@@ -69,9 +117,14 @@ class Signal(db.Model):
     ensemble_id = db.Column(db.String(36), nullable=True)
 
     # AI-proposed run config (from chat)
-    proposed_run = db.Column(db.Text, default="{}")  # JSON: {workflow_id, title, task_description, agent_configs, ...}
+    proposed_run = db.Column(db.Text, default="{}")  # JSON: {workflow_id, title, task_description, ...}
+
+    # Repo association — auto-detected from files_hint, confirmed in triage
+    repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+    repo_hint_id = db.Column(db.String(36), nullable=True)  # AI-suggested repo before user confirms
 
     run = db.relationship("Run", backref="signal", foreign_keys=[run_id])
+    repository = db.relationship("Repository", foreign_keys=[repo_id])
 
     def get_files_hint(self):
         return json.loads(self.files_hint) if self.files_hint else []
@@ -111,6 +164,9 @@ class Signal(db.Model):
             "run_id": self.run_id,
             "ensemble_id": self.ensemble_id,
             "proposed_run": self.get_proposed_run(),
+            "repo_id": self.repo_id,
+            "repo_hint_id": self.repo_hint_id,
+            "repository": self.repository.to_dict() if self.repository else None,
         }
 
 
@@ -188,7 +244,11 @@ class Run(db.Model):
     base_branch = db.Column(db.String(100), default="main")  # PR target branch
     ensemble_id = db.Column(db.String(36), nullable=True)  # Parent ensemble if part of drift detection
 
+    # Which repo this run targets — nullable for backward compat with old runs
+    repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
     workflow = db.relationship("Workflow", backref="runs")
+    repository = db.relationship("Repository", foreign_keys=[repo_id], backref="runs")
 
     def get_review_history(self):
         return json.loads(self.review_history) if self.review_history else []
@@ -198,6 +258,16 @@ class Run(db.Model):
         history.append({"round": len(history) + 1, "issues": issues_found})
         self.review_history = json.dumps(history)
         self.review_round = len(history)
+
+    def get_repo_path(self) -> str:
+        """Return this run's repo path, falling back to the default repo or setting."""
+        if self.repository:
+            return self.repository.path
+        # Fallback for old runs without repo_id
+        default = Repository.get_default()
+        if default:
+            return default.path
+        return Setting.get("repo_path", "")
 
     def duration_minutes(self):
         end = self.finished_at or datetime.now(timezone.utc)
@@ -224,6 +294,8 @@ class Run(db.Model):
             "source_type": self.source_type, "source_id": self.source_id,
             "auto_approve": self.auto_approve,
             "ensemble_id": self.ensemble_id,
+            "repo_id": self.repo_id,
+            "repo": self.repository.to_dict() if self.repository else None,
         }
 
 
@@ -238,21 +310,33 @@ class Ensemble(db.Model):
     num_runs = db.Column(db.Integer, default=3)
     status = db.Column(db.String(30), default="running")  # running, comparing, consensus, reviewing, done, failed
     base_branch = db.Column(db.String(100), default="main")
-    consensus_agent_id = db.Column(db.String(36), nullable=True)  # Agent doing consensus merge
-    reviewer_agent_id = db.Column(db.String(36), nullable=True)  # Agent reviewing consensus
+    consensus_agent_id = db.Column(db.String(36), nullable=True)
+    reviewer_agent_id = db.Column(db.String(36), nullable=True)
     consensus_worktree = db.Column(db.String(200), nullable=True)
-    comparison_data = db.Column(db.Text, default="{}")  # JSON: per-run summaries and diff stats
+    comparison_data = db.Column(db.Text, default="{}")
     total_cost = db.Column(db.Float, default=0.0)
     started_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     finished_at = db.Column(db.DateTime, nullable=True)
 
+    # Which repo this ensemble targets
+    repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
     workflow = db.relationship("Workflow")
+    repository = db.relationship("Repository", foreign_keys=[repo_id])
 
     def get_runs(self):
         return Run.query.filter_by(ensemble_id=self.id).order_by(Run.started_at).all()
 
     def get_comparison(self):
         return json.loads(self.comparison_data) if self.comparison_data else {}
+
+    def get_repo_path(self) -> str:
+        if self.repository:
+            return self.repository.path
+        default = Repository.get_default()
+        if default:
+            return default.path
+        return Setting.get("repo_path", "")
 
     def duration_minutes(self):
         end = self.finished_at or datetime.now(timezone.utc)
@@ -279,6 +363,8 @@ class Ensemble(db.Model):
             "runs": [r.to_dict() for r in runs],
             "runs_complete": sum(1 for r in runs if r.status in ("converged", "merged")),
             "runs_total": len(runs),
+            "repo_id": self.repo_id,
+            "repo": self.repository.to_dict() if self.repository else None,
         }
 
 
@@ -364,17 +450,21 @@ class EnsembleRun(db.Model):
     num_runs = db.Column(db.Integer, default=3)
     status = db.Column(db.String(30), default="pending")  # pending, running, comparing, synthesizing, reviewing, done, failed
     run_ids = db.Column(db.Text, default="[]")  # JSON array of run IDs
-    consensus_run_id = db.Column(db.String(36), nullable=True)  # The consensus synthesis run
-    review_run_id = db.Column(db.String(36), nullable=True)  # Final review run
-    comparison_data = db.Column(db.Text, default="{}")  # JSON: diff stats, shared findings, divergent findings
+    consensus_run_id = db.Column(db.String(36), nullable=True)
+    review_run_id = db.Column(db.String(36), nullable=True)
+    comparison_data = db.Column(db.Text, default="{}")
     total_cost = db.Column(db.Float, default=0.0)
     base_branch = db.Column(db.String(100), default="main")
-    auto_approve = db.Column(db.Boolean, default=True)  # Ensemble runs default to autopilot
-    individual_prs = db.Column(db.Boolean, default=False)  # Also create PRs for each child run
+    auto_approve = db.Column(db.Boolean, default=True)
+    individual_prs = db.Column(db.Boolean, default=False)
     started_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     finished_at = db.Column(db.DateTime, nullable=True)
 
+    # Which repo this ensemble targets
+    repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
     workflow = db.relationship("Workflow")
+    repository = db.relationship("Repository", foreign_keys=[repo_id])
 
     def get_run_ids(self):
         return json.loads(self.run_ids) if self.run_ids else []
@@ -384,6 +474,14 @@ class EnsembleRun(db.Model):
 
     def get_comparison(self):
         return json.loads(self.comparison_data) if self.comparison_data else {}
+
+    def get_repo_path(self) -> str:
+        if self.repository:
+            return self.repository.path
+        default = Repository.get_default()
+        if default:
+            return default.path
+        return Setting.get("repo_path", "")
 
     def duration_minutes(self):
         end = self.finished_at or datetime.now(timezone.utc)
@@ -411,4 +509,6 @@ class EnsembleRun(db.Model):
             "individual_prs": self.individual_prs,
             "duration_minutes": self.duration_minutes(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
+            "repo_id": self.repo_id,
+            "repo": self.repository.to_dict() if self.repository else None,
         }

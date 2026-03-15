@@ -120,6 +120,62 @@ def _agent_log_callback(agent_id, level, message):
 
 # ── Runs ──
 
+
+
+# ── Repository CRUD (multi-repo support) ─────────────────────────────────────
+
+@api.route("/repos", methods=["GET"])
+def list_repos():
+    from models import Repository
+    repos = Repository.query.order_by(Repository.created_at).all()
+    return jsonify([r.to_dict() for r in repos])
+
+
+@api.route("/repos", methods=["POST"])
+def add_repo_endpoint():
+    import services.repos as _r
+    d = request.json or {}
+    name = (d.get("name") or "").strip()
+    path = (d.get("path") or "").strip()
+    if not name or not path:
+        return jsonify({"error": "name and path are required"}), 400
+    try:
+        repo = _r.add_repo(name=name, path=path)
+        return jsonify(repo.to_dict()), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@api.route("/repos/<repo_id>", methods=["PUT"])
+def update_repo_endpoint(repo_id):
+    import services.repos as _r
+    d = request.json or {}
+    try:
+        repo = _r.update_repo(repo_id, name=d.get("name"), path=d.get("path"))
+        return jsonify(repo.to_dict())
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@api.route("/repos/<repo_id>", methods=["DELETE"])
+def delete_repo_endpoint(repo_id):
+    import services.repos as _r
+    if not _r.remove_repo(repo_id):
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"ok": True})
+
+
+@api.route("/repos/<repo_id>/set-default", methods=["POST"])
+def set_default_repo_endpoint(repo_id):
+    import services.repos as _r
+    try:
+        repo = _r.set_default(repo_id)
+        return jsonify(repo.to_dict())
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+# ── End repository CRUD ───────────────────────────────────────────────────────
+
 @api.route("/runs", methods=["GET"])
 def list_runs():
     runs = Run.query.order_by(Run.started_at.desc()).limit(50).all()
