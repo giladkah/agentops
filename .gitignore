@@ -1,0 +1,8 @@
+venv/
+instance/
+__pycache__/
+*.pyc
+*.db
+.wt/
+*.bak_*
+multi_repo_patch/
