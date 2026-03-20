@@ -6,7 +6,7 @@ import time
 import threading
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, Response, current_app
-from models import db, Run, Agent, Persona, Workflow, LogEntry, EnsembleRun, Setting, Signal
+from models import db, Run, Agent, Persona, Workflow, LogEntry, EnsembleRun, Setting, Signal, SignalCluster
 from services.orchestrator import RunOrchestrator
 from services.git_service import GitService
 from services.agent_runner import AgentRunner
@@ -15,6 +15,8 @@ from services.chat_service import ChatService
 from services.github_poller import GitHubPoller
 from services.shortcut_poller import ShortcutPoller
 from services.sentry_poller import SentryPoller
+from services.self_healing import SelfHealingService
+from services.clustering_service import ClusteringService
 import services.telemetry as telemetry
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -38,11 +40,13 @@ chat_service: ChatService = None
 github_poller: GitHubPoller = None
 shortcut_poller: ShortcutPoller = None
 sentry_poller: SentryPoller = None
+self_healing: SelfHealingService = None
+clustering_service: ClusteringService = None
 _active_triages = {}  # signal_id -> {"status": "running"|"done"|"error", ...}
 
 
 def init_services(repo_path: str, app=None, api_key: str = None):
-    global git_service, agent_runner, orchestrator, ensemble_orchestrator, chat_service, github_poller, shortcut_poller, sentry_poller
+    global git_service, agent_runner, orchestrator, ensemble_orchestrator, chat_service, github_poller, shortcut_poller, sentry_poller, self_healing, clustering_service
     git_service = GitService(repo_path)
 
     # Load saved mode from DB (default: "api" if API key set, else "cli")
@@ -80,6 +84,16 @@ def init_services(repo_path: str, app=None, api_key: str = None):
     if sentry_poller.projects:
         sentry_poller.start()
 
+    # Self-healing service
+    self_healing = SelfHealingService(chat_service, orchestrator, app=app)
+    if self_healing.is_enabled():
+        self_healing.start()
+
+    # Clustering service
+    clustering_service = ClusteringService(app=app, api_key=api_key)
+    if clustering_service.is_enabled():
+        clustering_service.start()
+
     print(f"🔌 Runner mode: {mode.upper()}")
     chat_mode = chat_service.mode()
     if chat_mode == "api":
@@ -94,6 +108,10 @@ def init_services(repo_path: str, app=None, api_key: str = None):
         print(f"🎯 Shortcut poller: {len(shortcut_poller.workspaces)} workspace(s) configured")
     if sentry_poller.projects:
         print(f"🐛 Sentry poller: {len(sentry_poller.projects)} project(s) configured")
+    if self_healing and self_healing._running:
+        print(f"🩺 Self-healing: enabled")
+    if clustering_service and clustering_service._running:
+        print(f"🔗 Clustering: enabled")
 
 
 def _agent_log_callback(agent_id, level, message):
@@ -921,6 +939,7 @@ def create_run_from_signal(signal_id):
                 "review": "reviewer",
                 "security": "security",
                 "qa": "qa",
+                "test": "test-runner",
             }
             role = role_map.get(stage_name, stage_name)
 
@@ -1565,6 +1584,264 @@ def sentry_issue_detail(issue_id):
         return jsonify(detail)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+
+# ── Clusters ──
+
+@api.route("/clusters", methods=["GET"])
+def list_clusters():
+    """List clusters with optional status filter and pagination."""
+    query = SignalCluster.query.order_by(SignalCluster.created_at.desc())
+    status = request.args.get("status")
+    if status:
+        query = query.filter_by(status=status)
+    offset = request.args.get("offset", 0, type=int)
+    limit = min(request.args.get("limit", 50, type=int), 200)
+    total = query.count()
+    clusters = query.offset(offset).limit(limit).all()
+    return jsonify({
+        "clusters": [c.to_dict() for c in clusters],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    })
+
+
+@api.route("/clusters/<cluster_id>", methods=["GET"])
+def get_cluster(cluster_id):
+    """Get cluster detail with member signal summaries."""
+    cluster = SignalCluster.query.get_or_404(cluster_id)
+    return jsonify(cluster.to_dict())
+
+
+@api.route("/clusters", methods=["POST"])
+def create_cluster():
+    """Manually create a cluster from signal IDs. Body: {"signal_ids": [...], "title": "..."}"""
+    data = request.json or {}
+    signal_ids = data.get("signal_ids", [])
+    if len(signal_ids) < 2:
+        return jsonify({"error": "At least 2 signal IDs required"}), 400
+
+    signals = Signal.query.filter(Signal.id.in_(signal_ids)).all()
+    if len(signals) < 2:
+        return jsonify({"error": "Not enough valid signals found"}), 400
+
+    # Determine repo_id from signals
+    repo_ids = {s.repo_id for s in signals if s.repo_id}
+    cluster_repo_id = repo_ids.pop() if len(repo_ids) == 1 else None
+
+    # Determine severity (highest)
+    severity = "low"
+    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for s in signals:
+        if sev_order.get(s.severity, 3) < sev_order.get(severity, 3):
+            severity = s.severity
+
+    # Merge files_hint
+    all_files = set()
+    for s in signals:
+        all_files.update(s.get_files_hint())
+
+    cluster = SignalCluster(
+        title=data.get("title", f"Cluster of {len(signals)} signals"),
+        severity=severity,
+        status="open",
+        repo_id=cluster_repo_id,
+        files_hint=json.dumps(list(all_files)[:20]),
+    )
+    db.session.add(cluster)
+    db.session.flush()
+
+    for s in signals:
+        s.cluster_id = cluster.id
+        s.proposed_run = ""
+    db.session.commit()
+
+    return jsonify(cluster.to_dict()), 201
+
+
+@api.route("/clusters/<cluster_id>", methods=["DELETE"])
+def delete_cluster(cluster_id):
+    """Delete a cluster and uncluster all member signals."""
+    cluster = SignalCluster.query.get_or_404(cluster_id)
+    for sig in cluster.signals:
+        sig.cluster_id = None
+    db.session.delete(cluster)
+    db.session.commit()
+    return jsonify({"status": "deleted"})
+
+
+@api.route("/clusters/<cluster_id>/signals", methods=["POST"])
+def modify_cluster_signals(cluster_id):
+    """Add/remove signals from a cluster. Body: {"add": [...], "remove": [...]}"""
+    cluster = SignalCluster.query.get_or_404(cluster_id)
+    data = request.json or {}
+
+    for sid in data.get("add", []):
+        sig = Signal.query.get(sid)
+        if sig:
+            sig.cluster_id = cluster.id
+            sig.proposed_run = ""
+
+    for sid in data.get("remove", []):
+        sig = Signal.query.get(sid)
+        if sig and sig.cluster_id == cluster.id:
+            sig.cluster_id = None
+
+    db.session.commit()
+
+    # Auto-delete empty cluster
+    if cluster.signal_count() == 0:
+        db.session.delete(cluster)
+        db.session.commit()
+        return jsonify({"status": "cluster_deleted_empty"})
+
+    # Recalculate severity and files_hint
+    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    highest = "low"
+    all_files = set()
+    for sig in cluster.signals:
+        if sev_order.get(sig.severity, 3) < sev_order.get(highest, 3):
+            highest = sig.severity
+        all_files.update(sig.get_files_hint())
+    cluster.severity = highest
+    cluster.files_hint = json.dumps(list(all_files)[:20])
+    db.session.commit()
+
+    return jsonify(cluster.to_dict())
+
+
+@api.route("/cases/from-signal", methods=["POST"])
+def create_case_from_signal():
+    """Promote an inbox signal to a single-signal case (SignalCluster)."""
+    data = request.json or {}
+    signal_id = data.get("signal_id")
+    if not signal_id:
+        return jsonify({"error": "signal_id is required"}), 400
+
+    signal = Signal.query.get(signal_id)
+    if not signal:
+        return jsonify({"error": "Signal not found"}), 404
+    if signal.cluster_id:
+        return jsonify({"error": "Signal already belongs to a case"}), 400
+
+    cluster = SignalCluster(
+        title=signal.title,
+        summary=signal.summary or "",
+        severity=signal.severity or "medium",
+        status="open",
+        files_hint=signal.files_hint or "[]",
+        repo_id=signal.repo_id,
+    )
+    db.session.add(cluster)
+    db.session.flush()
+
+    signal.cluster_id = cluster.id
+    db.session.commit()
+
+    return jsonify(cluster.to_dict()), 201
+
+
+@api.route("/clusters/<cluster_id>/triage", methods=["POST"])
+def triage_cluster(cluster_id):
+    """Trigger triage on a specific cluster."""
+    if not clustering_service:
+        return jsonify({"error": "Clustering service not initialized"}), 500
+    result = clustering_service.triage_cluster(cluster_id)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@api.route("/clusters/<cluster_id>/retry", methods=["POST"])
+def retry_cluster(cluster_id):
+    """Reset a failed cluster to open for re-triage."""
+    cluster = SignalCluster.query.get_or_404(cluster_id)
+    if cluster.status not in ("failed", "ready"):
+        return jsonify({"error": f"Cannot retry cluster in status '{cluster.status}'"}), 400
+    cluster.status = "open"
+    cluster.proposed_run = ""
+    cluster.run_id = None
+    db.session.commit()
+    return jsonify(cluster.to_dict())
+
+
+@api.route("/clusters/run-now", methods=["POST"])
+def clusters_run_now():
+    """Trigger one full clustering cycle (Phase A + B) manually."""
+    if not clustering_service:
+        return jsonify({"error": "Clustering service not initialized"}), 500
+    clustering_service.run_now()
+    return jsonify({"status": "completed", **clustering_service.get_status()})
+
+
+# ── Clustering Service Config ──
+
+@api.route("/clustering/status", methods=["GET"])
+def clustering_status():
+    """Get clustering service status + config + stats."""
+    if not clustering_service:
+        return jsonify({"running": False, "enabled": False, "config": {}, "stats": {}})
+    return jsonify(clustering_service.get_status())
+
+
+@api.route("/clustering/config", methods=["POST"])
+def clustering_config():
+    """Update clustering config."""
+    if not clustering_service:
+        return jsonify({"error": "Clustering service not initialized"}), 500
+    data = request.json or {}
+
+    # Handle start/stop
+    if "enabled" in data:
+        if data["enabled"] and not clustering_service._running:
+            clustering_service.start()
+        elif not data["enabled"] and clustering_service._running:
+            clustering_service.stop()
+
+    updated = clustering_service.set_config(data)
+    return jsonify({"config": updated})
+
+
+# ── Self-Healing ──
+
+@api.route("/self-healing/status", methods=["GET"])
+def self_healing_status():
+    """Get self-healing service status, rules, and stats."""
+    if not self_healing:
+        return jsonify({"running": False, "enabled": False, "rules": {}, "stats": {}})
+    return jsonify(self_healing.get_status())
+
+
+@api.route("/self-healing/start", methods=["POST"])
+def self_healing_start():
+    """Enable and start the self-healing loop. Optionally pass rules in body."""
+    if not self_healing:
+        return jsonify({"error": "Self-healing service not initialized"}), 500
+    data = request.json or {}
+    if data.get("rules"):
+        self_healing.set_rules(data["rules"])
+    self_healing.start()
+    return jsonify(self_healing.get_status())
+
+
+@api.route("/self-healing/stop", methods=["POST"])
+def self_healing_stop():
+    """Disable and stop the self-healing loop."""
+    if not self_healing:
+        return jsonify({"error": "Self-healing service not initialized"}), 500
+    self_healing.stop()
+    return jsonify(self_healing.get_status())
+
+
+@api.route("/self-healing/rules", methods=["POST"])
+def self_healing_rules():
+    """Update self-healing rules without restarting."""
+    if not self_healing:
+        return jsonify({"error": "Self-healing service not initialized"}), 500
+    data = request.json or {}
+    updated = self_healing.set_rules(data)
+    return jsonify({"rules": updated})
 
 
 @api.route("/settings", methods=["POST"])

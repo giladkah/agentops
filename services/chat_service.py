@@ -353,11 +353,11 @@ YOUR JOB:
 
 CRITICAL RULES:
 - If the user explicitly asks to "create a run", "prepare a run", "start a run", or "make a run" — propose one immediately based on what you know. Do not investigate further.
-- NEVER propose a run as your first response when the user hasn't asked for one. Always investigate first.
-- If the ticket is vague or unclear, ASK QUESTIONS before investigating. Do not guess.
-- If you still have open questions after investigating, ASK THEM. Do not propose a run with assumptions.
+- Investigate first, but BE DECISIVE. Once you understand the problem and know which files are involved, propose a run. Do not keep investigating endlessly.
 - When you DO propose a run, the task_description must be extremely specific with exact file paths, function names, and what to change.
 - Always set model to 'haiku' unless the user specifically requests a different model.
+- ALWAYS end your response with either: (a) a concrete run proposal via the propose_run tool, or (b) a clear summary of findings + specific questions if you need more info.
+- Never leave the user hanging with just investigation notes and no conclusion.
 
 INVESTIGATION APPROACH:
 - Start by investigating immediately — don't just describe what you'll do, DO it with tool calls
@@ -401,8 +401,8 @@ Keep responses concise but informative. Use code formatting for file paths and c
             try:
                 with open(path, "r", errors="replace") as f:
                     content = f.read()
-                if len(content) > 50000:
-                    content = content[:50000] + "\n\n... [truncated — file too large]"
+                if len(content) > 12000:
+                    content = content[:10000] + "\n\n... [truncated — showing first 10000 chars of " + str(len(content)) + "]"
                 return content
             except Exception as e:
                 return f"Error reading file: {e}"
@@ -441,7 +441,7 @@ Keep responses concise but informative. Use code formatting for file paths and c
                 cmd = ["grep", "-rn", f"--include={file_pat}", pattern, search_path]
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, cwd=self.repo_path)
-                output = result.stdout[:10000]
+                output = result.stdout[:5000]
                 if not output:
                     return f"No matches found for pattern: {pattern}"
                 # Make paths relative
@@ -465,9 +465,9 @@ Keep responses concise but informative. Use code formatting for file paths and c
                 )
                 output = ""
                 if result.stdout:
-                    output += result.stdout[:8000]
+                    output += result.stdout[:5000]
                 if result.stderr:
-                    output += "\n[stderr]\n" + result.stderr[:2000]
+                    output += "\n[stderr]\n" + result.stderr[:1000]
                 if result.returncode != 0:
                     output += f"\n[exit code: {result.returncode}]"
                 return output or "(no output)"
@@ -523,7 +523,28 @@ Keep responses concise but informative. Use code formatting for file paths and c
         api_messages = []
         for msg in chat_history:
             if msg["role"] in ("user", "assistant"):
-                api_messages.append({"role": msg["role"], "content": msg["content"]})
+                # Truncate very long messages to avoid context overflow
+                content = msg["content"]
+                if len(content) > 8000:
+                    content = content[:4000] + "\n\n[...truncated...]\n\n" + content[-2000:]
+                api_messages.append({"role": msg["role"], "content": content})
+
+        # Keep only the last N messages to stay within context limits
+        if len(api_messages) > 10:
+            api_messages = api_messages[:1] + api_messages[-9:]  # Keep first + last 9
+
+        # Ensure conversation starts with a user message (API requirement)
+        if api_messages and api_messages[0]["role"] != "user":
+            api_messages.insert(0, {"role": "user", "content": "Continue the investigation."})
+
+        # Remove consecutive same-role messages (API rejects these)
+        deduped = []
+        for msg in api_messages:
+            if deduped and deduped[-1]["role"] == msg["role"]:
+                deduped[-1]["content"] += "\n\n" + msg["content"]
+            else:
+                deduped.append(msg)
+        api_messages = deduped
 
         # If no messages yet (first auto-triage), add a trigger message
         if not api_messages:
@@ -539,11 +560,49 @@ Keep responses concise but informative. Use code formatting for file paths and c
         all_text_parts = []
         tool_calls_log = []
         turns = 0
-        max_turns = 15
+        max_turns = 25
 
         try:
             while turns < max_turns:
                 turns += 1
+
+                # Inject a wrap-up message when approaching the turn limit
+                if turns == max_turns - 3 and api_messages[-1]["role"] != "user":
+                    api_messages.append({"role": "user", "content": "[SYSTEM] You have 3 turns left. Start wrapping up your investigation. Summarize what you found so far."})
+                elif turns == max_turns - 1:
+                    # Force a conclusion on the last turn by removing tools
+                    response = self.client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=4096,
+                        system=system_prompt + "\n\nFINAL TURN: Summarize your findings and use propose_run if you have enough context for a fix. Do NOT make any more tool calls.",
+                        tools=CHAT_TOOLS,
+                        messages=api_messages,
+                    )
+                    # Process this response and break below
+                    assistant_content = []
+                    text_parts = []
+                    tool_use_blocks = []
+                    for block in response.content:
+                        if block.type == "text":
+                            text_parts.append(block.text)
+                            assistant_content.append({"type": "text", "text": block.text})
+                        elif block.type == "tool_use":
+                            tool_use_blocks.append(block)
+                            assistant_content.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.input})
+                    api_messages.append({"role": "assistant", "content": assistant_content})
+                    all_text_parts.extend(text_parts)
+                    # Handle propose_run if it used it
+                    for tool_block in tool_use_blocks:
+                        if tool_block.name == "propose_run":
+                            proposed_run = tool_block.input
+                            wf_name = proposed_run.get("workflow_name", "")
+                            matched_wf = next((w for w in workflows if w["name"].lower() == wf_name.lower()), workflows[0] if workflows else None)
+                            if matched_wf:
+                                proposed_run["workflow_id"] = matched_wf["id"]
+                                proposed_run["workflow"] = matched_wf
+                            signal.proposed_run = json.dumps(proposed_run)
+                            signal.status = "ready"
+                    break
 
                 response = self.client.messages.create(
                     model="claude-haiku-4-5-20251001",

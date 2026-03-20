@@ -230,7 +230,7 @@ class RunOrchestrator:
         self._log(run.id, f"Agent launched (model: {agent.model})", "info", agent.name)
 
         # Determine turn limit based on role
-        reviewer_roles = {"reviewer", "security", "qa", "architect-reviewer", "review", "review-quality", "review-security"}
+        reviewer_roles = {"reviewer", "security", "qa", "architect-reviewer", "review", "review-quality", "review-security", "test-runner"}
         consensus_roles = {"consensus"}
         if agent.stage_name in reviewer_roles or (agent.persona and agent.persona.role in reviewer_roles):
             max_turns = MAX_REVIEWER_TURNS
@@ -387,6 +387,17 @@ class RunOrchestrator:
             else:
                 self._advance_stage(run)
             return
+
+        # ── Test stage: check for TESTS FAILED marker ──
+        if stage_name == "test":
+            for a in stage_agents:
+                if a.status == "done" and a.output_log and "TESTS FAILED" in a.output_log:
+                    run.status = "failed"
+                    run.finished_at = datetime.now(timezone.utc)
+                    db.session.commit()
+                    self._log(run.id, f"❌ Tests failed — run stopped at test stage.", "error")
+                    telemetry.track_run_failed(run, reason="tests_failed")
+                    return
 
         # ── Non-review stage complete ──
         # If ALL agents in a non-review stage failed, stop the run

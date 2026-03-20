@@ -144,15 +144,29 @@ class SentryPoller:
         Returns normalized items ready to become Signals.
         """
         # Fetch unresolved issues, sorted by last seen (most recent first)
-        query_parts = ["is:unresolved"]
-        if level_filter:
+        # Sentry doesn't support OR in search, so fetch per-level and merge
+        if level_filter and len(level_filter) > 1:
+            seen_ids_local = set()
+            issues = []
+            per_level_limit = max(10, 25 // len(level_filter))
             for level in level_filter:
-                query_parts.append(f"level:{level}")
-
-        query = " ".join(query_parts)
-        path = f"/projects/{org}/{project}/issues/?query={_url_encode(query)}&sort=date&limit=25"
-
-        issues = self._sentry_get(path)
+                query = f"is:unresolved level:{level}"
+                path = f"/projects/{org}/{project}/issues/?query={_url_encode(query)}&sort=date&limit={per_level_limit}"
+                try:
+                    batch = self._sentry_get(path)
+                    for iss in batch:
+                        iid = iss.get("id")
+                        if iid and iid not in seen_ids_local:
+                            seen_ids_local.add(iid)
+                            issues.append(iss)
+                except Exception:
+                    pass
+        else:
+            query = "is:unresolved"
+            if level_filter:
+                query += f" level:{level_filter[0]}"
+            path = f"/projects/{org}/{project}/issues/?query={_url_encode(query)}&sort=date&limit=25"
+            issues = self._sentry_get(path)
 
         results = []
         for issue in issues:

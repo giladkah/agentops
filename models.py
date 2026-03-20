@@ -147,6 +147,9 @@ class Signal(db.Model):
     def get_proposed_run(self):
         return json.loads(self.proposed_run) if self.proposed_run else {}
 
+    # Cluster association
+    cluster_id = db.Column(db.String(36), db.ForeignKey("signal_clusters.id"), nullable=True)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -167,6 +170,64 @@ class Signal(db.Model):
             "repo_id": self.repo_id,
             "repo_hint_id": self.repo_hint_id,
             "repository": self.repository.to_dict() if self.repository else None,
+            "cluster_id": self.cluster_id,
+        }
+
+
+class SignalCluster(db.Model):
+    """A cluster of related signals sharing a common root cause."""
+    __tablename__ = "signal_clusters"
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+    title = db.Column(db.String(300))
+    summary = db.Column(db.Text, default="")
+    severity = db.Column(db.String(20), default="medium")
+    root_cause = db.Column(db.Text, default="")
+    # Status flow: open → triaging → ready → running → done | failed
+    status = db.Column(db.String(20), default="open")
+    files_hint = db.Column(db.Text, default="[]")
+    proposed_run = db.Column(db.Text, default="")
+    run_id = db.Column(db.String(36), db.ForeignKey("runs.id"), nullable=True)
+    repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
+    signals = db.relationship("Signal", backref="cluster", foreign_keys=[Signal.cluster_id])
+    run = db.relationship("Run", foreign_keys=[run_id])
+    repository = db.relationship("Repository", foreign_keys=[repo_id])
+
+    def get_files_hint(self):
+        return json.loads(self.files_hint) if self.files_hint else []
+
+    def get_proposed_run(self):
+        try:
+            return json.loads(self.proposed_run) if self.proposed_run else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def signal_count(self):
+        return len(self.signals)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "title": self.title,
+            "summary": self.summary,
+            "severity": self.severity,
+            "root_cause": self.root_cause,
+            "status": self.status,
+            "files_hint": self.get_files_hint(),
+            "proposed_run": self.get_proposed_run(),
+            "run_id": self.run_id,
+            "repo_id": self.repo_id,
+            "repository": self.repository.to_dict() if self.repository else None,
+            "signal_count": self.signal_count(),
+            "signals": [{"id": s.id, "title": s.title, "source": s.source,
+                         "severity": s.severity, "status": s.status, "source_id": s.source_id}
+                        for s in self.signals],
         }
 
 

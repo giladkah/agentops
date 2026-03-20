@@ -151,6 +151,33 @@ Run pytest after adding each test.
 Report how many new tests you wrote and what they cover.""",
         ),
         Persona(
+            name="Test Runner",
+            icon="✅",
+            role="test-runner",
+            default_model="haiku",
+            color="green",
+            traits=json.dumps(["Run existing tests", "Report pass/fail counts", "Never write new tests", "Never fix code"]),
+            prompt_template="""You are a test runner. Your ONLY job is to run the project's existing test suite and report results.
+
+Steps:
+1. Find the test command for this project (look for pytest.ini, setup.cfg, package.json scripts, Makefile, etc.)
+2. Run the test suite: `pytest -v` (Python) or the equivalent for this project
+3. Report the results in this EXACT format:
+
+If all tests pass:
+TESTS PASSED: X passed, 0 failed
+
+If any tests fail:
+TESTS FAILED: X passed, Y failed
+
+Rules:
+- Do NOT write new tests
+- Do NOT fix any code
+- Do NOT modify any files
+- If no test suite exists, report: TESTS FAILED: 0 passed, 0 failed (no test suite found)
+- Always include the full test output before your summary line""",
+        ),
+        Persona(
             name="Consensus Synthesizer",
             icon="🎯",
             role="consensus",
@@ -238,12 +265,13 @@ def seed_workflows():
         Workflow(
             name="Code Cleanup",
             icon="🧹",
-            description="One engineer cleans up, two reviewers check quality and security. Reviews loop until convergence.",
+            description="One engineer cleans up, tests verify no regressions, two reviewers check quality and security.",
             convergence_threshold=2,
             max_review_rounds=3,
             stages_config=json.dumps([
                 {"name": "plan", "checkpoint_after": True},
                 {"name": "engineer", "checkpoint_after": True},
+                {"name": "test", "checkpoint_after": False},
                 {"name": "review", "converge": True, "checkpoint_after": True},
                 {"name": "merge"},
             ]),
@@ -264,11 +292,12 @@ def seed_workflows():
         Workflow(
             name="Bug Fix",
             icon="🐛",
-            description="One engineer reproduces and fixes. One reviewer verifies the fix and checks for regressions.",
+            description="One engineer reproduces and fixes. Tests verify the fix. One reviewer checks for regressions.",
             convergence_threshold=1,
             max_review_rounds=2,
             stages_config=json.dumps([
                 {"name": "engineer", "checkpoint_after": True},
+                {"name": "test", "checkpoint_after": False},
                 {"name": "review", "converge": True, "checkpoint_after": True},
                 {"name": "merge"},
             ]),
@@ -304,6 +333,78 @@ def seed_workflows():
     db.session.commit()
 
 
+def _upsert_test_runner():
+    """Ensure the Test Runner persona exists (for existing databases)."""
+    existing = Persona.query.filter_by(role="test-runner").first()
+    if existing:
+        return
+    persona = Persona(
+        name="Test Runner",
+        icon="✅",
+        role="test-runner",
+        default_model="haiku",
+        color="green",
+        traits=json.dumps(["Run existing tests", "Report pass/fail counts", "Never write new tests", "Never fix code"]),
+        prompt_template="""You are a test runner. Your ONLY job is to run the project's existing test suite and report results.
+
+Steps:
+1. Find the test command for this project (look for pytest.ini, setup.cfg, package.json scripts, Makefile, etc.)
+2. Run the test suite: `pytest -v` (Python) or the equivalent for this project
+3. Report the results in this EXACT format:
+
+If all tests pass:
+TESTS PASSED: X passed, 0 failed
+
+If any tests fail:
+TESTS FAILED: X passed, Y failed
+
+Rules:
+- Do NOT write new tests
+- Do NOT fix any code
+- Do NOT modify any files
+- If no test suite exists, report: TESTS FAILED: 0 passed, 0 failed (no test suite found)
+- Always include the full test output before your summary line""",
+    )
+    db.session.add(persona)
+    db.session.commit()
+    print("  ✅ Upserted Test Runner persona")
+
+
+def _upsert_test_stage():
+    """Ensure Bug Fix and Code Cleanup workflows include a 'test' stage (for existing databases)."""
+    for wf_name in ("Bug Fix", "Code Cleanup"):
+        wf = Workflow.query.filter_by(name=wf_name).first()
+        if not wf:
+            continue
+        stages = wf.get_stages()
+        stage_names = [s.get("name") for s in stages]
+        if "test" in stage_names:
+            continue
+        # Insert test stage right after "engineer"
+        new_stages = []
+        for s in stages:
+            new_stages.append(s)
+            if s.get("name") == "engineer":
+                new_stages.append({"name": "test", "checkpoint_after": False})
+        wf.stages_config = json.dumps(new_stages)
+        db.session.commit()
+        print(f"  ✅ Upserted 'test' stage into {wf_name} workflow")
+
+
+def _migrate_signal_cluster_id():
+    """Add cluster_id column to signals table if missing (for existing databases)."""
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(db.engine)
+    columns = [c["name"] for c in inspector.get_columns("signals")]
+    if "cluster_id" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE signals ADD COLUMN cluster_id VARCHAR(36) REFERENCES signal_clusters(id)"))
+        print("  ✅ Added cluster_id column to signals table")
+
+
 def seed_all():
     seed_personas()
     seed_workflows()
+    _upsert_test_runner()
+    _upsert_test_stage()
+    _migrate_signal_cluster_id()
