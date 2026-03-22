@@ -190,6 +190,7 @@ class SignalCluster(db.Model):
     status = db.Column(db.String(20), default="open")
     files_hint = db.Column(db.Text, default="[]")
     proposed_run = db.Column(db.Text, default="")
+    chat_messages = db.Column(db.Text, default="[]")  # JSON array of {role, content, timestamp}
     run_id = db.Column(db.String(36), db.ForeignKey("runs.id"), nullable=True)
     repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
 
@@ -206,6 +207,18 @@ class SignalCluster(db.Model):
         except (json.JSONDecodeError, TypeError):
             return {}
 
+    def get_chat_messages(self):
+        return json.loads(self.chat_messages) if self.chat_messages else []
+
+    def add_chat_message(self, role, content):
+        msgs = self.get_chat_messages()
+        msgs.append({
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        self.chat_messages = json.dumps(msgs)
+
     def signal_count(self):
         return len(self.signals)
 
@@ -221,6 +234,7 @@ class SignalCluster(db.Model):
             "status": self.status,
             "files_hint": self.get_files_hint(),
             "proposed_run": self.get_proposed_run(),
+            "chat_messages": self.get_chat_messages(),
             "run_id": self.run_id,
             "repo_id": self.repo_id,
             "repository": self.repository.to_dict() if self.repository else None,

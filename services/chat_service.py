@@ -17,7 +17,7 @@ try:
 except ImportError:
     HAS_ANTHROPIC = False
 
-from models import db, Signal, Workflow, Persona
+from models import db, Signal, SignalCluster, Workflow, Persona
 
 
 # ── Tools for the chat AI (same as agent tools, scoped to repo) ──
@@ -940,6 +940,439 @@ Be specific, be concise, reference exact file paths and line numbers."""
         except Exception as e:
             return {
                 "messages": signal.get_chat_messages(),
+                "proposed_run": None,
+                "error": str(e),
+            }
+
+    def _build_cluster_system_prompt(self, cluster: SignalCluster, workflows: list, personas: list) -> str:
+        """Build system prompt with aggregated context from all member signals."""
+
+        wf_list = "\n".join([
+            f"  - {w['name']} ({w['icon']}): {w.get('description', '')} — stages: {', '.join(s['name'] for s in w.get('stages', []))}"
+            for w in workflows
+        ])
+
+        persona_list = "\n".join([
+            f"  - {p['name']} ({p['icon']}): role={p['role']}, default_model={p['default_model']}"
+            for p in personas
+        ])
+
+        # Build member signals context
+        signals = cluster.signals or []
+        signal_lines = []
+        for i, s in enumerate(signals[:20], 1):
+            signal_lines.append(f"{i}. [{s.source}] {s.title} — {s.summary[:200] if s.summary else 'No summary'}")
+
+        signal_block = "\n".join(signal_lines) if signal_lines else "(no signals)"
+
+        # Get enrichment from highest-severity signal
+        enriched_context = ""
+        if signals:
+            sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+            best = min(signals, key=lambda s: sev_order.get(s.severity, 3))
+            enriched_context = self._enrich_signal_context(best)
+
+        # Aggregate files_hint
+        all_files = []
+        for s in signals:
+            all_files.extend(s.get_files_hint())
+        files_hint = list(dict.fromkeys(all_files))[:20]  # deduplicate, keep order
+
+        return f"""You are an intelligent engineering assistant that triages and analyzes cases (clusters of related signals/bugs/features) for a software project.
+
+You have access to the full codebase through tools: read_file, list_directory, search_files, run_command.
+The project is at: {self.repo_path}
+
+YOUR JOB:
+1. READ the full case context below carefully — understand the overall problem across all member signals
+2. Investigate using your tools — read relevant files, check git history, understand the codebase context
+3. Share what you found with clear, specific details (file paths, line numbers, recent changes)
+4. Ask targeted questions about things you can't determine from the code alone
+5. ONLY propose a run when you have a clear, specific implementation plan
+
+CRITICAL RULES:
+- If the user explicitly asks to "create a run", "prepare a run", "start a run", or "make a run" — propose one immediately based on what you know.
+- Investigate first, but BE DECISIVE. Once you understand the problem and know which files are involved, propose a run.
+- When you DO propose a run, the task_description must be extremely specific with exact file paths, function names, and what to change.
+- Always set model to 'haiku' unless the user specifically requests a different model.
+- ALWAYS end your response with either: (a) a concrete run proposal via the propose_run tool, or (b) a clear summary of findings + specific questions if you need more info.
+
+CASE BEING INVESTIGATED:
+CASE TITLE: {cluster.title}
+CASE SUMMARY: {cluster.summary or 'Not yet triaged'}
+ROOT CAUSE: {cluster.root_cause or 'Not yet identified'}
+SEVERITY: {cluster.severity}
+STATUS: {cluster.status}
+FILES: {json.dumps(files_hint)}
+
+MEMBER SIGNALS ({len(signals)} total):
+{signal_block}
+{enriched_context}
+
+AVAILABLE WORKFLOWS:
+{wf_list}
+
+AVAILABLE PERSONAS:
+{persona_list}
+
+When using propose_run, match the workflow to the task type:
+- Bugs / regressions → Bug Fix
+- Code quality / refactoring → Code Cleanup
+- New functionality → New Feature
+- Security concerns → Security Audit
+- Missing tests → Test Coverage
+Always set model to "haiku" unless the user specifically requests a different model.
+
+Keep responses concise but informative. Use code formatting for file paths and code snippets."""
+
+    def send_cluster_message(self, cluster_id: str, user_message: str) -> dict:
+        """
+        Send a user message in the case/cluster chat, get AI response.
+        Similar to send_message but operates on SignalCluster.
+
+        Returns: {
+            "messages": [...],
+            "proposed_run": {...} or None,
+            "error": None or "error message"
+        }
+        """
+        if not self.available():
+            return {"messages": [], "proposed_run": None,
+                    "error": "No AI backend available. Set ANTHROPIC_API_KEY for API mode, or install Claude Code CLI."}
+
+        cluster = SignalCluster.query.get(cluster_id)
+        if not cluster:
+            return {"messages": [], "proposed_run": None, "error": "Case not found"}
+
+        # Save user message
+        if user_message.strip():
+            cluster.add_chat_message("user", user_message)
+        db.session.commit()
+
+        # Route to the right backend
+        if self.client:
+            return self._send_cluster_api(cluster)
+        else:
+            return self._send_cluster_cli(cluster, user_message)
+
+    def _send_cluster_api(self, cluster: SignalCluster) -> dict:
+        """API mode: structured tool use loop for cluster chat."""
+        chat_history = cluster.get_chat_messages()
+        api_messages = []
+        for msg in chat_history:
+            if msg["role"] in ("user", "assistant"):
+                content = msg["content"]
+                if len(content) > 8000:
+                    content = content[:4000] + "\n\n[...truncated...]\n\n" + content[-2000:]
+                api_messages.append({"role": msg["role"], "content": content})
+
+        if len(api_messages) > 10:
+            api_messages = api_messages[:1] + api_messages[-9:]
+
+        if api_messages and api_messages[0]["role"] != "user":
+            api_messages.insert(0, {"role": "user", "content": "Continue the investigation."})
+
+        # Remove consecutive same-role messages
+        deduped = []
+        for msg in api_messages:
+            if deduped and deduped[-1]["role"] == msg["role"]:
+                deduped[-1]["content"] += "\n\n" + msg["content"]
+            else:
+                deduped.append(msg)
+        api_messages = deduped
+
+        if not api_messages:
+            api_messages = [{"role": "user", "content": "Analyze this case and tell me what you find. Use your tools to investigate the codebase."}]
+
+        workflows = [w.to_dict() for w in Workflow.query.all()]
+        personas = [p.to_dict() for p in Persona.query.all()]
+        system_prompt = self._build_cluster_system_prompt(cluster, workflows, personas)
+
+        proposed_run = None
+        all_text_parts = []
+        tool_calls_log = []
+        turns = 0
+        max_turns = 25
+
+        try:
+            while turns < max_turns:
+                turns += 1
+
+                if turns == max_turns - 1:
+                    response = self.client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=4096,
+                        system=system_prompt + "\n\nFINAL TURN: Summarize your findings and use propose_run if you have enough context. Do NOT make any more tool calls.",
+                        tools=CHAT_TOOLS,
+                        messages=api_messages,
+                    )
+                    assistant_content = []
+                    text_parts = []
+                    for block in response.content:
+                        if block.type == "text":
+                            text_parts.append(block.text)
+                            assistant_content.append({"type": "text", "text": block.text})
+                        elif block.type == "tool_use":
+                            assistant_content.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.input})
+                            if block.name == "propose_run":
+                                proposed_run = block.input
+                                wf_name = proposed_run.get("workflow_name", "")
+                                matched_wf = next((w for w in workflows if w["name"].lower() == wf_name.lower()), workflows[0] if workflows else None)
+                                if matched_wf:
+                                    proposed_run["workflow_id"] = matched_wf["id"]
+                                    proposed_run["workflow"] = matched_wf
+                                cluster.proposed_run = json.dumps(proposed_run)
+                                cluster.status = "ready"
+                    api_messages.append({"role": "assistant", "content": assistant_content})
+                    all_text_parts.extend(text_parts)
+                    break
+
+                response = self.client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=4096,
+                    system=system_prompt,
+                    tools=CHAT_TOOLS,
+                    messages=api_messages,
+                )
+
+                assistant_content = []
+                text_parts = []
+                tool_use_blocks = []
+
+                for block in response.content:
+                    if block.type == "text":
+                        text_parts.append(block.text)
+                        assistant_content.append({"type": "text", "text": block.text})
+                    elif block.type == "tool_use":
+                        tool_use_blocks.append(block)
+                        assistant_content.append({
+                            "type": "tool_use", "id": block.id,
+                            "name": block.name, "input": block.input,
+                        })
+
+                api_messages.append({"role": "assistant", "content": assistant_content})
+                all_text_parts.extend(text_parts)
+
+                if tool_use_blocks:
+                    tool_results = []
+                    for tool_block in tool_use_blocks:
+                        result = self._execute_tool(tool_block.name, tool_block.input)
+                        tool_calls_log.append({
+                            "tool": tool_block.name,
+                            "input": tool_block.input,
+                            "result_preview": result[:200] if tool_block.name != "propose_run" else result,
+                        })
+
+                        if tool_block.name == "propose_run":
+                            proposed_run = tool_block.input
+                            wf_name = proposed_run.get("workflow_name", "")
+                            matched_wf = next(
+                                (w for w in workflows if w["name"].lower() == wf_name.lower()),
+                                workflows[0] if workflows else None,
+                            )
+                            if matched_wf:
+                                proposed_run["workflow_id"] = matched_wf["id"]
+                                proposed_run["workflow"] = matched_wf
+                            cluster.proposed_run = json.dumps(proposed_run)
+                            cluster.status = "ready"
+                            result = "Run proposal saved. The user can now approve or modify it."
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_block.id,
+                            "content": result,
+                        })
+
+                    api_messages.append({"role": "user", "content": tool_results})
+
+                if not tool_use_blocks or response.stop_reason == "end_turn":
+                    break
+
+            full_response = "\n\n".join(all_text_parts)
+
+            if full_response.strip():
+                cluster.add_chat_message("assistant", full_response)
+
+            if tool_calls_log:
+                cluster.add_chat_message("system", json.dumps({
+                    "type": "tool_calls",
+                    "calls": tool_calls_log,
+                }))
+
+            db.session.commit()
+
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": proposed_run,
+                "error": None,
+            }
+
+        except Exception as e:
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": None,
+                "error": str(e),
+            }
+
+    def _send_cluster_cli(self, cluster: SignalCluster, user_message: str) -> dict:
+        """CLI mode: use Claude Code subprocess for cluster chat."""
+        import re
+
+        workflows = [w.to_dict() for w in Workflow.query.all()]
+        signals = cluster.signals or []
+
+        signal_block = "\n".join([
+            f"  {i}. [{s.source}] {s.title} — {(s.summary or '')[:200]}"
+            for i, s in enumerate(signals[:20], 1)
+        ]) or "(no signals)"
+
+        wf_list = ", ".join([f'"{w["name"]}"' for w in workflows])
+
+        # Previous conversation context
+        chat_history = cluster.get_chat_messages()
+        history_block = ""
+        for msg in chat_history:
+            if msg["role"] == "user":
+                history_block += f"\nHuman: {msg['content']}\n"
+            elif msg["role"] == "assistant":
+                history_block += f"\nAssistant: {msg['content']}\n"
+
+        prompt = f"""You are triaging a case (cluster of related signals) for an engineering team.
+
+CASE:
+  Title: {cluster.title}
+  Summary: {cluster.summary or 'Not yet triaged'}
+  Root Cause: {cluster.root_cause or 'Not identified'}
+  Severity: {cluster.severity}
+  Status: {cluster.status}
+
+MEMBER SIGNALS ({len(signals)} total):
+{signal_block}
+"""
+        if history_block:
+            prompt += f"\nCONVERSATION SO FAR:{history_block}\n"
+
+        prompt += f"""
+YOUR TASK:
+1. Investigate the codebase — read the relevant files, check git history, understand the context
+2. Share specific findings (file paths, line numbers, recent changes)
+3. Ask targeted questions about anything you can't determine from code alone
+4. If you have enough context to recommend a fix, end your response with a JSON proposal block
+
+{f'The user says: {user_message}' if user_message else 'This is the initial investigation — investigate and report what you find.'}
+
+IMPORTANT: If you want to propose a run, include a JSON block at the END of your response in exactly this format:
+```json
+{{"PROPOSED_RUN": true, "workflow_name": "Bug Fix", "title": "Short title", "task_description": "Detailed description for the engineer", "auto_approve": true, "model": "haiku"}}
+```
+Available workflows: {wf_list}
+ALWAYS use "model": "haiku" unless the user specifically asks for a different model.
+
+Be specific, be concise, reference exact file paths and line numbers."""
+
+        try:
+            cmd = ["claude", "-p", prompt, "--output-format", "text"]
+            print(f"💬 CLI cluster triage: {cluster.title[:50]}...")
+
+            result = subprocess.run(
+                cmd, cwd=self.repo_path,
+                capture_output=True, text=True,
+                timeout=CLI_TIMEOUT,
+            )
+
+            output = result.stdout or ""
+            if result.stderr:
+                output += "\n" + result.stderr
+
+            if result.returncode != 0 and not output.strip():
+                return {
+                    "messages": cluster.get_chat_messages(),
+                    "proposed_run": None,
+                    "error": f"Claude Code exited with code {result.returncode}",
+                }
+
+            proposed_run = None
+            clean_output = output
+
+            if "PROPOSED_RUN" in output:
+                def _extract_json(text, key):
+                    idx = text.find(key)
+                    if idx == -1:
+                        return None, None, None
+                    start = text.rfind('{', 0, idx)
+                    if start == -1:
+                        return None, None, None
+                    depth = 0
+                    for i in range(start, len(text)):
+                        if text[i] == '{': depth += 1
+                        elif text[i] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                return text[start:i+1], start, i+1
+                    return None, None, None
+
+                code_match = re.search(r'```(?:json)?\s*(.*?)\s*```', output, re.DOTALL)
+                json_str, js_start, js_end = None, None, None
+                if code_match and "PROPOSED_RUN" in code_match.group(1):
+                    json_str, _, _ = _extract_json(code_match.group(1), "PROPOSED_RUN")
+                    if json_str:
+                        js_start, js_end = code_match.start(), code_match.end()
+                if not json_str:
+                    json_str, js_start, js_end = _extract_json(output, "PROPOSED_RUN")
+
+                if json_str:
+                    try:
+                        proposal = json.loads(json_str)
+                        proposal.pop("PROPOSED_RUN", None)
+                        proposed_run = proposal
+
+                        wf_name = proposed_run.get("workflow_name", "")
+                        matched_wf = next(
+                            (w for w in workflows if w["name"].lower() == wf_name.lower()),
+                            workflows[0] if workflows else None,
+                        )
+                        if matched_wf:
+                            proposed_run["workflow_id"] = matched_wf["id"]
+                            proposed_run["workflow"] = matched_wf
+
+                        cluster.proposed_run = json.dumps(proposed_run)
+                        cluster.status = "ready"
+
+                        clean_output = output[:js_start].rstrip()
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+
+            if clean_output.strip():
+                cluster.add_chat_message("assistant", clean_output.strip())
+
+            cluster.add_chat_message("system", json.dumps({
+                "type": "tool_calls",
+                "calls": [{"tool": "claude_code", "input": {"mode": "CLI"}, "result_preview": f"Claude Code analyzed the codebase ({len(output)} chars)"}],
+            }))
+
+            db.session.commit()
+
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": proposed_run,
+                "error": None,
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": None,
+                "error": "Claude Code timed out (5 min limit)",
+            }
+        except FileNotFoundError:
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": None,
+                "error": "Claude Code CLI not found. Install it or set ANTHROPIC_API_KEY for API mode.",
+            }
+        except Exception as e:
+            return {
+                "messages": cluster.get_chat_messages(),
                 "proposed_run": None,
                 "error": str(e),
             }

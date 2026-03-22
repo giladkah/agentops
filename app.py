@@ -28,6 +28,14 @@ def create_app(repo_path: str = None, api_key: str = None):
 
     with app.app_context():
         db.create_all()
+        # Migrate: add chat_messages column to signal_clusters if missing (SQLite)
+        from sqlalchemy import text
+        with db.engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE signal_clusters ADD COLUMN chat_messages TEXT DEFAULT '[]'"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
         seed_all()
 
     # Init services

@@ -1590,11 +1590,31 @@ def sentry_issue_detail(issue_id):
 
 @api.route("/clusters", methods=["GET"])
 def list_clusters():
-    """List clusters with optional status filter and pagination."""
-    query = SignalCluster.query.order_by(SignalCluster.created_at.desc())
+    """List clusters with optional status/severity filter, sorting, and pagination."""
+    from sqlalchemy import case as sql_case
+    query = SignalCluster.query
     status = request.args.get("status")
     if status:
         query = query.filter_by(status=status)
+    severity = request.args.get("severity")
+    if severity:
+        query = query.filter_by(severity=severity)
+
+    sort = request.args.get("sort", "recent")
+    if sort == "severity":
+        sev_order = sql_case(
+            (SignalCluster.severity == "critical", 0),
+            (SignalCluster.severity == "high", 1),
+            (SignalCluster.severity == "medium", 2),
+            (SignalCluster.severity == "low", 3),
+            else_=4,
+        )
+        query = query.order_by(sev_order, SignalCluster.updated_at.desc())
+    elif sort == "oldest":
+        query = query.order_by(SignalCluster.created_at.asc())
+    else:
+        query = query.order_by(SignalCluster.updated_at.desc())
+
     offset = request.args.get("offset", 0, type=int)
     limit = min(request.args.get("limit", 50, type=int), 200)
     total = query.count()
@@ -1740,6 +1760,18 @@ def create_case_from_signal():
     db.session.commit()
 
     return jsonify(cluster.to_dict()), 201
+
+
+@api.route("/clusters/<cluster_id>/chat", methods=["POST"])
+def cluster_chat(cluster_id):
+    """Send a message in the case's chat conversation. Returns AI response."""
+    data = request.json or {}
+    message = data.get("message", "")
+
+    result = chat_service.send_cluster_message(cluster_id, message)
+    if result["error"]:
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @api.route("/clusters/<cluster_id>/triage", methods=["POST"])

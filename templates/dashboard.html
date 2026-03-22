@@ -648,6 +648,33 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
 
     /* ── Inbox section (removed — signals auto-cluster into cases) ───── */
 
+    /* ── Case chat (inside overview tab) ─────────────────────────────── */
+    .case-chat{border-top:1px solid var(--border-default);padding:var(--sp-3) var(--sp-6);flex-shrink:0}
+    .case-chat-msgs{max-height:240px;overflow-y:auto;padding:var(--sp-2) 0;display:flex;flex-direction:column;gap:var(--sp-2)}
+    .case-chat-msg{font-size:var(--fs-sm);line-height:1.5;padding:var(--sp-2) var(--sp-3);border-radius:var(--radius)}
+    .case-chat-msg.user{background:var(--accent-muted);color:var(--text-primary);align-self:flex-end;max-width:80%}
+    .case-chat-msg.assistant{background:var(--bg-tertiary);color:var(--text-secondary);max-width:90%}
+    .case-chat-input{display:flex;gap:var(--sp-2);align-items:flex-end}
+    .case-chat-input textarea{flex:1;resize:none;background:var(--bg-secondary);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sm);font-family:inherit;min-height:36px;max-height:100px}
+    .case-chat-input textarea:focus{border-color:var(--accent);outline:none}
+    .case-chat-input button{padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sm)}
+
+    /* ── Timeline ─────────────────────────────────────────────────────── */
+    .ctx-timeline{position:relative;padding-left:16px}
+    .ctx-timeline::before{content:'';position:absolute;left:5px;top:4px;bottom:4px;width:1px;background:var(--border-default)}
+    .ctx-timeline-item{position:relative;padding:var(--sp-1) 0;padding-left:var(--sp-3)}
+    .ctx-timeline-dot{position:absolute;left:-14px;top:8px;width:7px;height:7px;border-radius:50%;border:1.5px solid var(--border-default);background:var(--bg-secondary)}
+    .ctx-timeline-dot.active{border-color:var(--accent);background:var(--accent)}
+    .ctx-timeline-time{font-size:10px;color:var(--text4);font-family:var(--font-mono)}
+    .ctx-timeline-label{font-size:var(--fs-xs);color:var(--text-secondary);margin-top:1px}
+
+    /* ── Filter pills ─────────────────────────────────────────────────── */
+    .case-filters{padding:var(--sp-2) var(--sp-3);display:flex;gap:var(--sp-1);flex-wrap:wrap;border-bottom:1px solid var(--border-default);flex-shrink:0;align-items:center}
+    .case-filter-pill{font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid var(--border-default);background:none;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all 0.15s}
+    .case-filter-pill:hover{border-color:var(--text4)}
+    .case-filter-pill.active{background:var(--accent-muted);border-color:var(--accent);color:var(--accent)}
+    .case-sort{font-size:10px;margin-left:auto;background:none;border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-muted);cursor:pointer;font-family:inherit;padding:2px 4px}
+
     /* ── Sidebar brand ─────────────────────────────────────────────────── */
     .sidebar-brand{padding:var(--sp-3) var(--sp-3);display:flex;align-items:center;gap:var(--sp-2);border-bottom:1px solid var(--border-default);flex-shrink:0}
 
@@ -699,6 +726,20 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
           <div class="sidebar-tabs" id="sidebar-tabs">
             <button class="sidebar-tab active" id="sb-tab-cases" onclick="setSidebarTab('cases')">Cases <span class="sig-feed-count" id="cases-count" style="background:var(--purple-bg);color:var(--purple)">0</span></button>
             <button class="sidebar-tab" id="sb-tab-runs" onclick="setSidebarTab('runs')">Runs <span class="sig-feed-count" id="runs-count" style="background:var(--accent-muted);color:var(--accent)">0</span></button>
+          </div>
+
+          <!-- Case filter pills -->
+          <div class="case-filters" id="case-filters">
+            <button class="case-filter-pill active" onclick="setCaseFilter('all')">All</button>
+            <button class="case-filter-pill" onclick="setCaseFilter('open')">Open</button>
+            <button class="case-filter-pill" onclick="setCaseFilter('ready')">Ready</button>
+            <button class="case-filter-pill" onclick="setCaseFilter('running')">Running</button>
+            <button class="case-filter-pill" onclick="setCaseFilter('done')">Done</button>
+            <select class="case-sort" id="case-sort" onchange="setCaseSort(this.value)">
+              <option value="recent">Recent</option>
+              <option value="severity">Severity</option>
+              <option value="oldest">Oldest</option>
+            </select>
           </div>
 
           <!-- Feed panels (switched by tabs) -->
@@ -795,7 +836,17 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
               <button class="case-tab" id="ct-runs" onclick="setCaseTab('runs')">runs</button>
             </div>
             <!-- Tab content (mutually exclusive) -->
-            <div id="case-tab-overview" style="flex:1;overflow-y:auto"></div>
+            <div id="case-tab-overview" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+              <div id="case-overview-content" style="flex:1;overflow-y:auto"></div>
+              <div class="case-chat" id="case-chat">
+                <div class="case-chat-msgs" id="case-chat-msgs"></div>
+                <div class="case-chat-input">
+                  <textarea id="case-chat-input" placeholder="Ask about this case..." rows="1"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendCaseChat()}"></textarea>
+                  <button class="btn btn-sm btn-primary" onclick="sendCaseChat()">Send</button>
+                </div>
+              </div>
+            </div>
             <div id="case-tab-tasks" style="display:none;flex:1;overflow-y:auto"></div>
             <div id="case-tab-runs" style="display:none;flex:1;overflow-y:auto"></div>
           </div>
@@ -940,6 +991,8 @@ let state = {
   caseTotal: 0,
   activeCaseId: null,
   activeCaseTab: 'overview',  // 'overview' | 'tasks' | 'runs'
+  caseFilter: 'all',    // status filter
+  caseSort: 'recent',   // sort order
   inboxCollapsed: false,
   activeRunId: null,  // currently selected run/ensemble in right panel
   pollTimer: null,
@@ -1132,10 +1185,16 @@ function toggleInbox() {
 }
 
 function updateFeedCount() {
-  // Cases count (sidebar tab badge)
+  // Cases count (sidebar tab badge) — show filtered/total when filtered
   const casesCount = document.getElementById('cases-count');
   if (casesCount) {
-    casesCount.textContent = state.caseTotal || (state.cases || []).length;
+    const shown = (state.cases || []).length;
+    const total = state.caseTotal || shown;
+    if (state.caseFilter !== 'all' && shown !== total) {
+      casesCount.textContent = shown + '/' + total;
+    } else {
+      casesCount.textContent = total;
+    }
   }
   // Runs count (sidebar tab badge)
   const runsCount = document.getElementById('runs-count');
@@ -1481,6 +1540,9 @@ function setSidebarTab(tab) {
   const runsPanel = document.getElementById('sidebar-runs-panel');
   if (casesPanel) casesPanel.style.display = tab === 'cases' ? '' : 'none';
   if (runsPanel) runsPanel.style.display = tab === 'runs' ? '' : 'none';
+  // Show/hide case filter bar
+  const filters = document.getElementById('case-filters');
+  if (filters) filters.style.display = tab === 'cases' ? 'flex' : 'none';
 }
 
 // Legacy compat
@@ -1493,12 +1555,14 @@ function toggleInlineSettings(forceOpen) {
   const ft = document.getElementById('feed-top');
   const tabs = document.getElementById('sidebar-tabs');
   const sb = document.getElementById('feed-settings-bar');
+  const cf = document.getElementById('case-filters');
   const show = forceOpen || !si.classList.contains('show');
   if (show) {
     si.classList.add('show');
     if (ft) ft.style.display = 'none';
     if (tabs) tabs.style.display = 'none';
     if (sb) sb.style.display = 'none';
+    if (cf) cf.style.display = 'none';
     setSettingsTab('general', null);
     history.pushState(null, '', '#settings');
   } else {
@@ -1511,10 +1575,12 @@ function closeInlineSettings() {
   const ft = document.getElementById('feed-top');
   const tabs = document.getElementById('sidebar-tabs');
   const sb = document.getElementById('feed-settings-bar');
+  const cf = document.getElementById('case-filters');
   si.classList.remove('show');
   if (ft) ft.style.display = '';
   if (tabs) tabs.style.display = '';
   if (sb) sb.style.display = '';
+  if (cf) cf.style.display = _sidebarTab === 'cases' ? 'flex' : 'none';
   // Restore hash
   history.pushState(null, '', '#cases');
 }
@@ -3007,7 +3073,10 @@ async function loadCases() {
     if (list) list.innerHTML = renderFeedSkeleton(4);
   }
   try {
-    const resp = await api.get('/clusters?limit=50');
+    let url = '/clusters?limit=50';
+    if (state.caseFilter !== 'all') url += '&status=' + state.caseFilter;
+    if (state.caseSort !== 'recent') url += '&sort=' + state.caseSort;
+    const resp = await api.get(url);
     state.cases = resp.clusters || [];
     state.caseTotal = resp.total || 0;
   } catch(e) {
@@ -3091,12 +3160,15 @@ function setCaseTab(tab) {
   const btn = document.getElementById('ct-' + tab);
   if (btn) btn.classList.add('active');
   // Toggle tab content
-  document.getElementById('case-tab-overview').style.display = tab === 'overview' ? '' : 'none';
+  document.getElementById('case-tab-overview').style.display = tab === 'overview' ? 'flex' : 'none';
   document.getElementById('case-tab-tasks').style.display = tab === 'tasks' ? '' : 'none';
   document.getElementById('case-tab-runs').style.display = tab === 'runs' ? '' : 'none';
   // Render active tab
   if (_currentCaseData) {
-    if (tab === 'overview') renderCaseOverview(_currentCaseData);
+    if (tab === 'overview') {
+      renderCaseOverview(_currentCaseData);
+      renderCaseChatMessages(_currentCaseData);
+    }
     else if (tab === 'tasks') renderCaseTasks(_currentCaseData);
     else if (tab === 'runs') renderCaseRuns(_currentCaseData);
   }
@@ -3152,7 +3224,7 @@ function renderCaseDetail(c) {
 }
 
 function renderCaseOverview(c) {
-  const panel = document.getElementById('case-tab-overview');
+  const panel = document.getElementById('case-overview-content');
   let html = '<div class="case-overview">';
 
   // Summary card
@@ -3242,6 +3314,92 @@ function renderCaseOverview(c) {
 
 // Legacy alias
 function renderCaseBrief(c) { renderCaseOverview(c); }
+
+/* ── Case Chat Functions ─────────────────────────────────────── */
+function renderCaseChatMessages(c) {
+  const container = document.getElementById('case-chat-msgs');
+  if (!container) return;
+  const msgs = c.chat_messages || [];
+  const visible = msgs.filter(m => m.role === 'user' || m.role === 'assistant');
+
+  if (!visible.length) {
+    container.innerHTML = '<div style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding:var(--sp-2)">Ask a question to investigate this case</div>';
+    return;
+  }
+
+  container.innerHTML = visible.map(m => {
+    const cls = m.role === 'user' ? 'user' : 'assistant';
+    return `<div class="case-chat-msg ${cls}">${esc(m.content)}</div>`;
+  }).join('');
+
+  // Scroll to bottom
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendCaseChat() {
+  const input = document.getElementById('case-chat-input');
+  if (!input) return;
+  const message = input.value.trim();
+  if (!message || !state.activeCaseId) return;
+
+  input.value = '';
+
+  // Optimistic: append user bubble
+  const container = document.getElementById('case-chat-msgs');
+  // Clear empty state if present
+  const emptyState = container.querySelector('div[style*="text-align:center"]');
+  if (emptyState) emptyState.remove();
+
+  container.innerHTML += `<div class="case-chat-msg user">${esc(message)}</div>`;
+  container.innerHTML += '<div class="case-chat-msg assistant" id="case-chat-typing" style="opacity:0.5"><span class="ld-dot"></span> Thinking...</div>';
+  container.scrollTop = container.scrollHeight;
+
+  try {
+    const resp = await api.post('/clusters/' + state.activeCaseId + '/chat', { message });
+    // Remove typing indicator
+    const typing = document.getElementById('case-chat-typing');
+    if (typing) typing.remove();
+
+    if (resp.error) {
+      container.innerHTML += `<div class="case-chat-msg assistant" style="color:var(--error)">${esc(resp.error)}</div>`;
+    } else {
+      // Re-render all messages from response
+      const allMsgs = resp.messages || [];
+      const visible = allMsgs.filter(m => m.role === 'user' || m.role === 'assistant');
+      container.innerHTML = visible.map(m => {
+        const cls = m.role === 'user' ? 'user' : 'assistant';
+        return `<div class="case-chat-msg ${cls}">${esc(m.content)}</div>`;
+      }).join('');
+      container.scrollTop = container.scrollHeight;
+
+      // If proposed run, refresh overview
+      if (resp.proposed_run) {
+        const caseData = await api.get('/clusters/' + state.activeCaseId);
+        _currentCaseData = caseData;
+        renderCaseOverview(caseData);
+      }
+    }
+  } catch(e) {
+    const typing = document.getElementById('case-chat-typing');
+    if (typing) typing.remove();
+    container.innerHTML += `<div class="case-chat-msg assistant" style="color:var(--error)">Error: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+/* ── Case Filter / Sort Functions ────────────────────────────── */
+function setCaseFilter(status) {
+  state.caseFilter = status;
+  // Update active pill styling
+  document.querySelectorAll('.case-filter-pill').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim().toLowerCase() === status);
+  });
+  loadCases();
+}
+
+function setCaseSort(sort) {
+  state.caseSort = sort;
+  loadCases();
+}
 
 function renderCaseTasks(c) {
   const panel = document.getElementById('case-tab-tasks');
@@ -3496,6 +3654,12 @@ function renderContextOverview(c, el) {
     html += '</div>';
   }
 
+  // Timeline
+  html += '<div class="ctx-section">';
+  html += '<div class="ctx-section-title">Timeline</div>';
+  html += buildCaseTimeline(c);
+  html += '</div>';
+
   // Quick actions
   html += '<div class="ctx-section">';
   html += '<div class="ctx-section-title">Actions</div>';
@@ -3507,6 +3671,85 @@ function renderContextOverview(c, el) {
   html += '</div></div>';
 
   el.innerHTML = html;
+}
+
+function buildCaseTimeline(c) {
+  const events = [];
+
+  // Case created
+  if (c.created_at) {
+    events.push({ time: new Date(c.created_at), label: 'Case created', active: false });
+  }
+
+  // Signal ingestion events (newest 5)
+  const signals = c.signals || [];
+  const sigSorted = [...signals].sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0));
+  for (const s of sigSorted.slice(0, 5)) {
+    if (s.created_at) {
+      const title = (s.title || '').length > 30 ? s.title.substring(0, 30) + '...' : s.title;
+      events.push({ time: new Date(s.created_at), label: 'Signal: ' + title, active: false });
+    }
+  }
+
+  // Status-based events
+  if (c.status === 'triaging') {
+    events.push({ time: new Date(c.updated_at || c.created_at), label: 'Triage started', active: true });
+  }
+  if (c.status === 'ready') {
+    events.push({ time: new Date(c.updated_at || c.created_at), label: 'Triage complete', active: true });
+  }
+  if (c.run_id) {
+    events.push({ time: new Date(c.updated_at || c.created_at), label: 'Run started', active: true });
+  }
+  if (c.status === 'done') {
+    events.push({ time: new Date(c.updated_at || c.created_at), label: 'Run completed', active: true });
+  }
+  if (c.status === 'failed') {
+    events.push({ time: new Date(c.updated_at || c.created_at), label: 'Run failed', active: false });
+  }
+
+  // Chat message events (last 3)
+  const chatMsgs = (c.chat_messages || []).filter(m => m.role === 'user' || m.role === 'assistant');
+  const recentChats = chatMsgs.slice(-3);
+  for (const m of recentChats) {
+    if (m.timestamp) {
+      events.push({ time: new Date(m.timestamp), label: 'Investigation message', active: false });
+    }
+  }
+
+  // Case updated (if different from created)
+  if (c.updated_at && c.created_at && c.updated_at !== c.created_at) {
+    const updatedTime = new Date(c.updated_at);
+    const createdTime = new Date(c.created_at);
+    if (updatedTime - createdTime > 60000) { // More than 1 min difference
+      events.push({ time: updatedTime, label: 'Case updated', active: false });
+    }
+  }
+
+  // Sort descending (most recent first), deduplicate by label+time
+  events.sort((a,b) => b.time - a.time);
+  const seen = new Set();
+  const unique = events.filter(e => {
+    const key = e.label + '|' + Math.floor(e.time.getTime() / 60000);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 10);
+
+  if (!unique.length) {
+    return '<div style="font-size:var(--fs-xs);color:var(--text-muted)">No events yet</div>';
+  }
+
+  let html = '<div class="ctx-timeline">';
+  for (const ev of unique) {
+    html += `<div class="ctx-timeline-item">
+      <div class="ctx-timeline-dot${ev.active ? ' active' : ''}"></div>
+      <div class="ctx-timeline-time">${getTimeAgo(ev.time.toISOString())}</div>
+      <div class="ctx-timeline-label">${esc(ev.label)}</div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
 }
 
 function renderContextTasks(c, el) {
