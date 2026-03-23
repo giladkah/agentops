@@ -724,7 +724,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
 
           <!-- Sidebar tabs: Cases | Runs -->
           <div class="sidebar-tabs" id="sidebar-tabs">
-            <button class="sidebar-tab active" id="sb-tab-cases" onclick="setSidebarTab('cases')">Cases <span class="sig-feed-count" id="cases-count" style="background:var(--purple-bg);color:var(--purple)">0</span></button>
+            <button class="sidebar-tab active" id="sb-tab-cases" onclick="setSidebarTab('cases')">Findings <span class="sig-feed-count" id="cases-count" style="background:var(--purple-bg);color:var(--purple)">0</span></button>
             <button class="sidebar-tab" id="sb-tab-runs" onclick="setSidebarTab('runs')">Runs <span class="sig-feed-count" id="runs-count" style="background:var(--accent-muted);color:var(--accent)">0</span></button>
           </div>
 
@@ -788,7 +788,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
               <span style="font-size:13px">⚙</span> Settings
             </button>
             <span style="flex:1"></span>
-            <button class="feed-settings-btn" onclick="showNewSignalModal()" title="New Task">+</button>
+            <button class="feed-settings-btn" onclick="showNewSignalModal()" title="New Issue">+</button>
             <button class="feed-settings-btn" onclick="showLaunchModal()" title="New Run">▶</button>
           </div>
         </div>
@@ -803,13 +803,13 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
           <div id="sig-chat-active" style="display:none;flex-direction:column;height:100%;">
             <div class="sig-chat-header">
               <span id="sig-chat-icon">🐛</span>
-              <span class="ch-title" id="sig-chat-title">Task</span>
+              <span class="ch-title" id="sig-chat-title">Issue</span>
               <span id="sig-chat-source" class="si-src" style="font-size:11px;"></span>
               <span id="sig-chat-severity" class="si-severity" style="font-size:11px;"></span>
               <div class="ch-actions">
                 <span id="sig-chat-mode" style="font-size:11px;padding:2px 6px;border-radius:3px;font-family:var(--font-mono);font-weight:600"></span>
-                <button class="btn btn-sm" id="sig-case-btn" onclick="findCaseForSignal()" title="Create a case from this signal" style="display:none">Create Case</button>
-                <button class="btn btn-sm" onclick="skipSignal()" title="Skip this task">Skip</button>
+                <button class="btn btn-sm" id="sig-case-btn" onclick="findCaseForSignal()" title="Create a finding from this signal" style="display:none">Create Finding</button>
+                <button class="btn btn-sm" onclick="skipSignal()" title="Skip this issue">Skip</button>
               </div>
             </div>
             <div class="sig-msgs" id="sig-msgs"></div>
@@ -821,7 +821,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
                 <textarea id="sig-input-text" placeholder="Add context, ask questions, or type anything..." rows="1"
                   oninput="updateInvestigateBtn()"
                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();investigate()}"></textarea>
-                <button class="triage-btn" onclick="investigate()" id="sig-investigate-btn" title="AI investigates the task">Investigate</button>
+                <button class="triage-btn" onclick="investigate()" id="sig-investigate-btn" title="AI investigates the issue">Investigate</button>
               </div>
             </div>
           </div>
@@ -832,7 +832,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
             <!-- Tab bar: Overview / Tasks / Runs -->
             <div class="case-tabs" id="case-tabs">
               <button class="case-tab active" id="ct-overview" onclick="setCaseTab('overview')">overview</button>
-              <button class="case-tab" id="ct-tasks" onclick="setCaseTab('tasks')">tasks <span id="ct-tasks-count"></span></button>
+              <button class="case-tab" id="ct-tasks" onclick="setCaseTab('tasks')">issues <span id="ct-tasks-count"></span></button>
               <button class="case-tab" id="ct-runs" onclick="setCaseTab('runs')">runs</button>
             </div>
             <!-- Tab content (mutually exclusive) -->
@@ -841,7 +841,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
               <div class="case-chat" id="case-chat">
                 <div class="case-chat-msgs" id="case-chat-msgs"></div>
                 <div class="case-chat-input">
-                  <textarea id="case-chat-input" placeholder="Ask about this case..." rows="1"
+                  <textarea id="case-chat-input" placeholder="Ask about this finding..." rows="1"
                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendCaseChat()}"></textarea>
                   <button class="btn btn-sm btn-primary" onclick="sendCaseChat()">Send</button>
                 </div>
@@ -874,7 +874,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
     <select id="m-workflow" onchange="onWorkflowChange()"></select>
     <label>Title</label>
     <input id="m-title" placeholder="e.g. Cleanup LPN module" />
-    <label>Task Description</label>
+    <label>Issue Description</label>
     <textarea id="m-task" placeholder="What should the agents work on?"></textarea>
     <label>Target Branch (for PR)</label>
     <input id="m-branch" placeholder="auto-generated if empty" />
@@ -932,8 +932,8 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
 <!-- New Signal Modal -->
 <div class="modal-overlay" id="signal-modal" onclick="if(event.target===this)hideSignalModal()">
   <div class="modal" style="width:580px">
-    <h3>📋 New Task</h3>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Paste a bug report, describe a task, drop a Slack thread — anything that might need engineering work.</div>
+    <h3>📋 New Issue</h3>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Paste a bug report, describe an issue, drop a Slack thread — anything that might need engineering work.</div>
 
     <label>Title <span style="color:var(--red)">*</span></label>
     <input id="ns-title" placeholder="e.g. Fix null pointer in payment flow" style="margin-bottom:4px">
@@ -966,7 +966,7 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
 
     <div class="modal-actions">
       <button class="btn" onclick="hideSignalModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="submitNewSignal()">Create Task 📋</button>
+      <button class="btn btn-primary" onclick="submitNewSignal()">Create Issue 📋</button>
     </div>
   </div>
 </div>
@@ -1442,8 +1442,8 @@ async function renderRunDetailPanel(runId) {
     // Cross-navigation: link to signal if this run has one
     if (data.signal_id) {
       html += `<div style="margin-top:var(--sp-5);padding:var(--sp-3) var(--sp-4);border-top:1px solid var(--border-default);display:flex;align-items:center;gap:var(--sp-2)">
-        <span style="font-size:var(--fs-xs);color:var(--text-muted)">Linked task</span>
-        <button class="btn btn-sm" onclick="setFeedTab('signals');setTimeout(()=>selectSignal('${data.signal_id}'),200)">View Task →</button>
+        <span style="font-size:var(--fs-xs);color:var(--text-muted)">Linked issue</span>
+        <button class="btn btn-sm" onclick="setFeedTab('signals');setTimeout(()=>selectSignal('${data.signal_id}'),200)">View Issue →</button>
       </div>`;
     }
 
@@ -1731,7 +1731,7 @@ async function loadSettingsIntegrations() {
   const area = document.getElementById('settings-content-area');
   area.innerHTML = `<div style="margin-bottom:12px">
       <div style="font-size:12px;font-weight:600;color:var(--text-primary)">🔗 Integrations</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px">Connect tools to feed tasks into your pipeline.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">Connect tools to feed issues into your pipeline.</div>
   </div>
   <div id="integrations-content" style="display:flex;flex-direction:column;gap:12px"></div>`;
   loadIntegrations();
@@ -1743,7 +1743,7 @@ async function loadSettingsSelfHealing() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div>
         <div style="font-size:16px;font-weight:600;color:var(--text-primary)">🩺 Self-Healing</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">Automatically triage tasks and launch fix runs</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Automatically triage issues and launch fix runs</div>
       </div>
       <button id="sh-toggle-btn" onclick="toggleSelfHealing()" style="padding:8px 18px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:600;background:var(--bg);color:var(--text)">
         Enable
@@ -3095,8 +3095,8 @@ function renderCases() {
   if (!state.cases.length) {
     list.innerHTML = `<div class="empty" style="padding:24px 20px">
       <div class="icon">📁</div>
-      <div class="title">No cases yet</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:6px">Cases are auto-created when related signals are detected</div>
+      <div class="title">No findings yet</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">Findings are auto-created when related signals are detected</div>
     </div>`;
     return;
   }
@@ -3112,7 +3112,7 @@ function renderCases() {
     const stBg = {open:'rgba(240,184,73,0.12)',triaging:'rgba(79,140,255,0.12)',ready:'rgba(74,222,128,0.12)',running:'rgba(79,140,255,0.12)',done:'rgba(74,222,128,0.12)',failed:'rgba(240,112,112,0.12)'}[c.status] || 'rgba(255,255,255,0.06)';
 
     return `<div class="case-item${isActive?' active':''}" onclick="selectCase('${c.id}')">
-      <div class="ci-title">${esc(c.title || 'Untitled case')}</div>
+      <div class="ci-title">${esc(c.title || 'Untitled finding')}</div>
       <div class="ci-meta">
         <span style="font-size:var(--fs-xs);font-weight:500;padding:1px 6px;border-radius:10px;background:${stBg};color:${statusColor}">${c.status}</span>
         <span style="font-size:var(--fs-xs);color:var(--text4);font-family:var(--font-mono)">${timeAgo}</span>
@@ -3189,14 +3189,14 @@ function renderCaseDetail(c) {
   document.getElementById('case-detail-header').innerHTML = `
     <div style="padding:var(--sp-6) var(--sp-8) var(--sp-4);max-width:800px;margin:0 auto">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:var(--sp-4)">
-        <button style="font-size:var(--fs-xs);color:var(--text-muted);background:none;border:none;cursor:pointer;font-family:inherit" onclick="clearRightPanel()">Cases</button>
+        <button style="font-size:var(--fs-xs);color:var(--text-muted);background:none;border:none;cursor:pointer;font-family:inherit" onclick="clearRightPanel()">Findings</button>
         <span style="font-size:var(--fs-xs);color:var(--text-muted)">›</span>
         <span style="font-size:var(--fs-xs);font-family:var(--font-mono);color:var(--text-secondary)">${esc((c.id||'').substring(0,8))}</span>
       </div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:2px">
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:4px">
-            <h1 style="font-size:var(--fs-2xl);font-weight:var(--fw-semibold);color:var(--text-primary);letter-spacing:var(--ls-tight)">${esc(c.title || 'Untitled case')}</h1>
+            <h1 style="font-size:var(--fs-2xl);font-weight:var(--fw-semibold);color:var(--text-primary);letter-spacing:var(--ls-tight)">${esc(c.title || 'Untitled finding')}</h1>
             <span class="si-status ${stClass}" style="font-size:var(--fs-xs);padding:2px 8px;border-radius:10px;flex-shrink:0">${c.status}</span>
           </div>
           <div style="display:flex;align-items:center;gap:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
@@ -3262,7 +3262,7 @@ function renderCaseOverview(c) {
         </div>
         <div style="display:flex;gap:var(--sp-2)">
           ${c.status === 'ready' ? `<button class="btn btn-primary" onclick="createCaseRun('${c.id}')">Run Agents</button>` : ''}
-          ${c.status === 'open' ? `<button class="btn btn-primary" onclick="triageCase('${c.id}')">Triage Case</button>` : ''}
+          ${c.status === 'open' ? `<button class="btn btn-primary" onclick="triageCase('${c.id}')">Triage Finding</button>` : ''}
           ${c.run_id ? `<button class="btn" onclick="setCaseTab('runs')">View Run</button>` : ''}
         </div>
       </div>
@@ -3272,16 +3272,16 @@ function renderCaseOverview(c) {
     html += `<div class="case-overview-section">
       <div class="case-overview-section-title">What to do next</div>
       <div class="case-next-action" style="border-color:var(--border-default)">
-        <div class="case-next-action-title">Triage this case</div>
+        <div class="case-next-action-title">Triage this finding</div>
         <p style="font-size:var(--fs-base);color:var(--text-muted);line-height:1.65;margin-bottom:var(--sp-4)">Run AI analysis to generate a summary, identify root cause, and propose a plan of action.</p>
-        <button class="btn btn-primary" onclick="triageCase('${c.id}')">Triage Case</button>
+        <button class="btn btn-primary" onclick="triageCase('${c.id}')">Triage Finding</button>
       </div>
     </div>`;
   } else {
     // Has summary/root cause but no proposed run yet — show action buttons
     html += '<div class="case-overview-actions">';
     if (c.status === 'open') {
-      html += `<button class="btn btn-primary" onclick="triageCase('${c.id}')">Triage Case</button>`;
+      html += `<button class="btn btn-primary" onclick="triageCase('${c.id}')">Triage Finding</button>`;
     }
     if (c.status === 'ready') {
       html += `<button class="btn btn-primary" onclick="createCaseRun('${c.id}')">Run Agents</button>`;
@@ -3323,7 +3323,7 @@ function renderCaseChatMessages(c) {
   const visible = msgs.filter(m => m.role === 'user' || m.role === 'assistant');
 
   if (!visible.length) {
-    container.innerHTML = '<div style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding:var(--sp-2)">Ask a question to investigate this case</div>';
+    container.innerHTML = '<div style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding:var(--sp-2)">Ask a question to investigate this finding</div>';
     return;
   }
 
@@ -3407,7 +3407,7 @@ function renderCaseTasks(c) {
   const members = c.signals || [];
 
   if (!members.length) {
-    panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text4);font-size:var(--fs-sm)">No tasks in this case</div>';
+    panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text4);font-size:var(--fs-sm)">No issues in this finding</div>';
     return;
   }
 
@@ -3444,7 +3444,7 @@ function renderCaseRuns(c) {
     panel.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text4)">
       <div style="font-size:24px;opacity:0.3;margin-bottom:8px">⚡</div>
       <div style="font-size:var(--fs-sm)">No runs yet.</div>
-      <div style="font-size:var(--fs-xs);color:var(--text4);margin-top:4px">Triage this case to generate a run proposal.</div>
+      <div style="font-size:var(--fs-xs);color:var(--text4);margin-top:4px">Triage this finding to generate a run proposal.</div>
     </div>`;
     return;
   }
@@ -3578,7 +3578,7 @@ async function retryCase(id) {
 }
 
 async function deleteCase(id) {
-  showConfirmDialog('Delete this case? Signals will be moved back to the inbox.', async () => {
+  showConfirmDialog('Delete this finding? Signals will be moved back to the inbox.', async () => {
     try {
       await api.del('/clusters/' + id);
       state.activeCaseId = null;
@@ -3630,7 +3630,7 @@ function renderContextOverview(c, el) {
   let html = '';
   // Case stats
   html += '<div class="ctx-section">';
-  html += '<div class="ctx-section-title">Case details</div>';
+  html += '<div class="ctx-section-title">Finding details</div>';
   html += `<div class="ctx-stat-row"><span class="csr-label">Status</span><span class="csr-value">${c.status}</span></div>`;
   html += `<div class="ctx-stat-row"><span class="csr-label">Severity</span><span class="csr-value">${c.severity || 'medium'}</span></div>`;
   html += `<div class="ctx-stat-row"><span class="csr-label">Signals</span><span class="csr-value">${c.signal_count}</span></div>`;
@@ -3664,10 +3664,10 @@ function renderContextOverview(c, el) {
   html += '<div class="ctx-section">';
   html += '<div class="ctx-section-title">Actions</div>';
   html += '<div style="display:flex;flex-direction:column;gap:var(--sp-1)">';
-  if (c.status === 'open') html += `<button class="btn btn-sm" style="width:100%;justify-content:center" onclick="triageCase('${c.id}')">Triage Case</button>`;
+  if (c.status === 'open') html += `<button class="btn btn-sm" style="width:100%;justify-content:center" onclick="triageCase('${c.id}')">Triage Finding</button>`;
   if (c.status === 'ready') html += `<button class="btn btn-sm btn-primary" style="width:100%;justify-content:center" onclick="createCaseRun('${c.id}')">Run Agents</button>`;
   if (c.status === 'failed') html += `<button class="btn btn-sm" style="width:100%;justify-content:center" onclick="retryCase('${c.id}')">Re-triage</button>`;
-  html += `<button class="btn btn-sm btn-danger" style="width:100%;justify-content:center" onclick="deleteCase('${c.id}')">Delete Case</button>`;
+  html += `<button class="btn btn-sm btn-danger" style="width:100%;justify-content:center" onclick="deleteCase('${c.id}')">Delete Finding</button>`;
   html += '</div></div>';
 
   el.innerHTML = html;
@@ -3676,9 +3676,9 @@ function renderContextOverview(c, el) {
 function buildCaseTimeline(c) {
   const events = [];
 
-  // Case created
+  // Finding created
   if (c.created_at) {
-    events.push({ time: new Date(c.created_at), label: 'Case created', active: false });
+    events.push({ time: new Date(c.created_at), label: 'Finding created', active: false });
   }
 
   // Signal ingestion events (newest 5)
@@ -3717,12 +3717,12 @@ function buildCaseTimeline(c) {
     }
   }
 
-  // Case updated (if different from created)
+  // Finding updated (if different from created)
   if (c.updated_at && c.created_at && c.updated_at !== c.created_at) {
     const updatedTime = new Date(c.updated_at);
     const createdTime = new Date(c.created_at);
     if (updatedTime - createdTime > 60000) { // More than 1 min difference
-      events.push({ time: updatedTime, label: 'Case updated', active: false });
+      events.push({ time: updatedTime, label: 'Finding updated', active: false });
     }
   }
 
@@ -3759,8 +3759,8 @@ function renderContextTasks(c, el) {
 
   let html = '';
   html += '<div class="ctx-section">';
-  html += '<div class="ctx-section-title">Task overview</div>';
-  html += `<div class="ctx-stat-row"><span class="csr-label">Total tasks</span><span class="csr-value">${signals.length}</span></div>`;
+  html += '<div class="ctx-section-title">Issue overview</div>';
+  html += `<div class="ctx-stat-row"><span class="csr-label">Total issues</span><span class="csr-value">${signals.length}</span></div>`;
   for (const [status, count] of Object.entries(statusCounts)) {
     const statusColor = {new:'var(--warning)',investigating:'var(--info)',investigated:'var(--success)',running:'var(--info)',done:'var(--success)',skipped:'var(--text4)',failed:'var(--error)'}[status] || 'var(--text-muted)';
     html += `<div class="ctx-stat-row"><span class="csr-label" style="display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>${status}</span><span class="csr-value">${count}</span></div>`;
@@ -3859,13 +3859,13 @@ async function findCaseForSignal() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating...'; }
     const result = await api.post('/cases/from-signal', { signal_id: sid });
     if (btn) btn.style.display = 'none';
-    showToastMessage('Case created: ' + (result.title || 'New case'), 'success');
+    showToastMessage('Finding created: ' + (result.title || 'New finding'), 'success');
     loadCases();
     loadSignals();
     selectCase(result.id);
   } catch(e) {
-    showToastMessage('Failed to create case: ' + (e.message || e), 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '📁 Create Case'; }
+    showToastMessage('Failed to create finding: ' + (e.message || e), 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '📁 Create Finding'; }
   }
 }
 
@@ -3976,7 +3976,7 @@ function renderSignalChat(signal) {
   // Show initial context card, then enrich for Shortcut signals
   const contextHtml = buildContextCardHtml(signal, {url, storyType, labels, user, tasks, filesHint, description: signal.summary || '', comments: [], customFields: []});
   container.innerHTML = contextHtml + (msgs.length ? '' : `<div style="text-align:center;padding:20px;color:var(--text4)">
-      <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this task, or type a message to ask something specific.</div>
+      <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this issue, or type a message to ask something specific.</div>
     </div>`);
 
   // Fetch enriched details for Shortcut signals
@@ -4055,7 +4055,7 @@ async function fetchShortcutDetails(storyId, signal, msgs) {
       container.innerHTML = contextHtml + renderChatMessages(msgs, signal);
     } else {
       container.innerHTML = contextHtml + `<div style="text-align:center;padding:20px;color:var(--text4)">
-        <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this task, or type a message to ask something specific.</div>
+        <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this issue, or type a message to ask something specific.</div>
       </div>`;
     }
     scrollChatToBottom();
@@ -4089,7 +4089,7 @@ async function fetchGitHubDetails(repo, number, signal, msgs) {
       container.innerHTML = contextHtml + renderChatMessages(msgs, signal);
     } else {
       container.innerHTML = contextHtml + `<div style="text-align:center;padding:20px;color:var(--text4)">
-        <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this task, or type a message to ask something specific.</div>
+        <div style="font-size:11px">Click <strong>🔍 Investigate</strong> to let the AI analyze this issue, or type a message to ask something specific.</div>
       </div>`;
     }
     scrollChatToBottom();
@@ -4210,7 +4210,7 @@ function updateInvestigateBtn() {
   if (!btn) return;
   const hasText = input && input.value.trim().length > 0;
   btn.innerHTML = hasText ? '→ Send' : '🔍 Investigate';
-  btn.title = hasText ? 'Send message to AI' : 'AI investigates the task';
+  btn.title = hasText ? 'Send message to AI' : 'AI investigates the issue';
 }
 
 async function investigate() {
@@ -4398,7 +4398,7 @@ function showNoChatMessage() {
       <strong>Option 2 — Claude Code CLI:</strong><br>
       <code style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:3px;color:var(--cyan)">npm install -g @anthropic-ai/claude-code</code>
       <br><br>
-      Then restart the app. <strong>You can still</strong> create tasks and manage your backlog.
+      Then restart the app. <strong>You can still</strong> create issues and manage your backlog.
     </div>
   </div>`;
   msgs.scrollTop = msgs.scrollHeight;
@@ -4450,14 +4450,14 @@ function createRunFromSignal(signalId, autoApprove) {
   // Update modal title to show it came from a signal
   const h3 = document.querySelector('#launch-modal .modal h3');
   if (h3) {
-    h3.innerHTML = '🚀 Launch Run <span style="font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-muted);color:var(--accent);margin-left:8px;font-weight:400">from task</span>';
+    h3.innerHTML = '🚀 Launch Run <span style="font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-muted);color:var(--accent);margin-left:8px;font-weight:400">from issue</span>';
   }
 }
 
 async function skipSignal() {
   if (!state.activeSignalId) return;
   const sid = state.activeSignalId;
-  showConfirmDialog('Skip this task?', async () => {
+  showConfirmDialog('Skip this issue?', async () => {
     try {
       await api.post('/signals/' + sid + '/skip', {});
       await loadSignals();
@@ -4506,7 +4506,7 @@ async function submitNewSignal() {
     await loadSignals();
     selectSignal(signal.id);
   } catch(e) {
-    showToastMessage('Error creating task: ' + e.message, 'error');
+    showToastMessage('Error creating issue: ' + e.message, 'error');
   }
 }
 
@@ -4559,7 +4559,7 @@ async function loadIntegrations() {
             </div>
           `).join('')}
           <div style="font-size:11px;color:var(--text3);margin-top:6px">
-            📊 ${signalCounts.github} task${signalCounts.github !== 1 ? 's' : ''} imported · polls every 2 min · issues only
+            📊 ${signalCounts.github} issue${signalCounts.github !== 1 ? 's' : ''} imported · polls every 2 min · issues only
           </div>
         ` : `
           <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:12px">
@@ -4624,7 +4624,7 @@ async function loadIntegrations() {
             </div>
           `).join('')}
           <div style="font-size:11px;color:var(--text3);margin-top:6px">
-            📊 ${signalCounts.shortcut} task${signalCounts.shortcut !== 1 ? 's' : ''} imported · polls every 2 min
+            📊 ${signalCounts.shortcut} issue${signalCounts.shortcut !== 1 ? 's' : ''} imported · polls every 2 min
           </div>
           ${scStatus.workflow_states ? `
             <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
@@ -4696,7 +4696,7 @@ async function loadIntegrations() {
               <button onclick="disconnectSentry('${esc(p.org)}','${esc(p.project)}')" style="background:none;border:none;color:var(--text4);cursor:pointer;font-size:11px;padding:2px 4px" title="Disconnect">✕</button>
             </div>
           `).join('')}
-          ${signalCounts.sentry ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">📊 ' + signalCounts.sentry + ' task' + (signalCounts.sentry !== 1 ? 's' : '') + ' imported</div>' : ''}
+          ${signalCounts.sentry ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px">📊 ' + signalCounts.sentry + ' issue' + (signalCounts.sentry !== 1 ? 's' : '') + ' imported</div>' : ''}
           <div style="display:flex;gap:6px;margin-top:8px">
             <button onclick="sentryPollNow()" style="padding:5px 10px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">🔄 Poll Now</button>
             <button onclick="showSentryConnect()" style="padding:5px 10px;border-radius:5px;background:var(--bg);border:1px solid var(--border);color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">+ Add Project</button>
@@ -4753,17 +4753,17 @@ async function loadIntegrations() {
         <span style="font-size:22px">✏️</span>
         <div style="flex:1">
           <div style="font-size:13px;font-weight:600;color:var(--text-primary)">Manual</div>
-          <div style="font-size:11px;color:var(--text3)">Create tasks directly</div>
+          <div style="font-size:11px;color:var(--text3)">Create issues directly</div>
         </div>
         <span style="font-size:11px;padding:3px 8px;border-radius:4px;font-weight:600;font-family:var(--font-mono);background:var(--success-muted);color:var(--success)">● ALWAYS ON</span>
       </div>
 
       <div style="padding:16px 18px;flex:1">
         <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">
-          Paste bug reports, Slack threads, PRD excerpts — anything that might need engineering work. Click <strong style="color:var(--text-primary)">+ New</strong> in the Tasks tab.
+          Paste bug reports, Slack threads, PRD excerpts — anything that might need engineering work. Click <strong style="color:var(--text-primary)">+ New</strong> in the Issues tab.
         </div>
-        ${signalCounts.manual ? `<div style="font-size:11px;color:var(--text-secondary)">📊 ${signalCounts.manual} task${signalCounts.manual !== 1 ? 's' : ''} created</div>` : ''}
-        <button onclick="closeSettings();setFeedTab('signals');setTimeout(showNewSignalModal,200)" style="margin-top:8px;padding:6px 14px;border-radius:5px;background:var(--accent);color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ New Task</button>
+        ${signalCounts.manual ? `<div style="font-size:11px;color:var(--text-secondary)">📊 ${signalCounts.manual} issue${signalCounts.manual !== 1 ? 's' : ''} created</div>` : ''}
+        <button onclick="closeSettings();setFeedTab('signals');setTimeout(showNewSignalModal,200)" style="margin-top:8px;padding:6px 14px;border-radius:5px;background:var(--accent);color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ New Issue</button>
       </div>
     </div>
   `;
@@ -5348,7 +5348,7 @@ function showConfirmDialog(message, onConfirm) {
    Command Palette (Cmd+K)
    ═══════════════════════════════════════ */
 const _cmdCommands = [
-  {label:'New Task', icon:'＋', action:()=>showNewSignalModal(), shortcut:'N'},
+  {label:'New Issue', icon:'＋', action:()=>showNewSignalModal(), shortcut:'N'},
   {label:'Launch Run', icon:'▶', action:()=>showLaunchModal(), shortcut:''},
   {label:'Run AI Clustering', icon:'🔗', action:()=>runClusteringNow(), shortcut:''},
   {label:'Open Settings', icon:'⚙', action:()=>toggleInlineSettings(true), shortcut:''},
@@ -5472,7 +5472,7 @@ function renderDashboardOverview() {
       const dotColor = {open:'var(--warning)',triaging:'var(--info)',ready:'var(--success)',running:'var(--info)',done:'var(--success)',failed:'var(--error)'}[c.status] || 'var(--text4)';
       html += `<div class="dash-task-row" onclick="selectCase('${c.id}')">
         <div class="dtr-dot" style="background:${dotColor}"></div>
-        <div class="dtr-title">${esc(c.title || 'Untitled case')}</div>
+        <div class="dtr-title">${esc(c.title || 'Untitled finding')}</div>
         <div class="dtr-time">${c.signal_count} signal${c.signal_count!==1?'s':''} · ${getTimeAgo(c.created_at)}</div>
       </div>`;
     }
@@ -5482,7 +5482,7 @@ function renderDashboardOverview() {
   // Quick actions
   html += '<div class="dash-section"><div class="dash-section-title">Quick Actions</div>';
   html += '<div class="dash-actions">';
-  html += '<button class="btn" onclick="showNewSignalModal()">＋ New Task</button>';
+  html += '<button class="btn" onclick="showNewSignalModal()">＋ New Issue</button>';
   html += '<button class="btn" onclick="showLaunchModal()">▶ New Run</button>';
   html += '</div></div>';
 

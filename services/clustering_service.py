@@ -22,7 +22,7 @@ from models import db, Signal, SignalCluster, Setting, Repository
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 DEFAULT_CONFIG = {
-    "enabled": True,
+    "enabled": False,
     "poll_interval": 60,
     "min_unclustered": 2,
     "max_cluster_size": 10,
@@ -43,6 +43,8 @@ class ClusteringService:
         self.client = None
         if HAS_ANTHROPIC and self.api_key:
             self.client = anthropic.Anthropic(api_key=self.api_key)
+
+        self._cluster_attempted_ids = set()  # Signal IDs already sent through clustering
 
         self.stats = {
             "signals_clustered": 0,
@@ -138,6 +140,9 @@ class ClusteringService:
             Signal.created_at < cutoff,
         ).order_by(Signal.created_at.asc()).all()
 
+        # Filter out signals we already attempted to cluster (avoid re-sending every tick)
+        unclustered = [s for s in unclustered if s.id not in self._cluster_attempted_ids]
+
         if len(unclustered) < min_unclustered:
             return
 
@@ -178,6 +183,14 @@ class ClusteringService:
                 })
 
             result = self._ai_cluster_batch(signal_descs, cluster_descs, max_cluster_size)
+
+            # Mark these signals as attempted regardless of result
+            for s in batch:
+                self._cluster_attempted_ids.add(s.id)
+            # Cap memory usage — evict oldest entries if set gets too large
+            if len(self._cluster_attempted_ids) > 5000:
+                self._cluster_attempted_ids = set(list(self._cluster_attempted_ids)[-2000:])
+
             if not result:
                 continue
 
@@ -305,6 +318,19 @@ Return ONLY valid JSON, no markdown fences, no explanation:
 
     def _triage_cluster(self, cluster: SignalCluster):
         """Analyze a cluster and generate a proposed run."""
+        # Track retry count to avoid infinite retry loops
+        try:
+            meta = json.loads(cluster.root_cause) if cluster.root_cause and cluster.root_cause.startswith('{') else {}
+        except (json.JSONDecodeError, TypeError):
+            meta = {}
+        retry_count = meta.get("_retry_count", 0) if isinstance(meta, dict) else 0
+
+        if retry_count >= 3:
+            cluster.status = "failed"
+            db.session.commit()
+            self._record_error(f"Cluster {cluster.id[:8]} failed after {retry_count} retries — marking as failed")
+            return
+
         cluster.status = "triaging"
         db.session.commit()
 
@@ -357,12 +383,15 @@ Return ONLY valid JSON, no markdown fences, no explanation:
             result = json.loads(text)
         except json.JSONDecodeError as e:
             self._record_error(f"Cluster triage JSON parse error: {e}")
-            cluster.status = "open"  # Reset to retry next tick
+            # Increment retry count so we don't loop forever
+            cluster.status = "open"
+            cluster.root_cause = json.dumps({"_retry_count": retry_count + 1, "text": cluster.root_cause or ""})
             db.session.commit()
             return
         except Exception as e:
             self._record_error(f"Cluster triage API error: {e}")
             cluster.status = "open"
+            cluster.root_cause = json.dumps({"_retry_count": retry_count + 1, "text": cluster.root_cause or ""})
             db.session.commit()
             return
 
