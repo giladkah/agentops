@@ -1,0 +1,60 @@
+name: 'Ensemble Analysis'
+description: 'Run multi-agent analysis on PRs and issues via Ensemble'
+branding:
+  icon: 'cpu'
+  color: 'purple'
+
+inputs:
+  ensemble-url:
+    description: 'URL of the Ensemble server (e.g., https://ensemble.example.com)'
+    required: true
+  ensemble-token:
+    description: 'API token for Ensemble server (optional, for auth)'
+    required: false
+    default: ''
+  github-token:
+    description: 'GitHub token for posting comments/checks'
+    required: false
+    default: ${{ github.token }}
+  mode:
+    description: 'Run mode: "single" or "ensemble"'
+    required: false
+    default: 'single'
+  workflow:
+    description: 'Ensemble workflow name (e.g., "Bug Fix", "Code Review")'
+    required: false
+    default: 'Bug Fix'
+  post-results:
+    description: 'How to post results: "comment", "check", "summary", "silent"'
+    required: false
+    default: 'comment'
+  timeout:
+    description: 'Max wait time in minutes before giving up'
+    required: false
+    default: '30'
+  ensemble-size:
+    description: 'Number of parallel runs for ensemble mode'
+    required: false
+    default: '3'
+  label-trigger:
+    description: 'Only run when this label is present (empty = always run)'
+    required: false
+    default: ''
+  cost-limit:
+    description: 'Max estimated cost in USD before aborting (0 = no limit)'
+    required: false
+    default: '0'
+
+outputs:
+  run-id:
+    description: 'The Ensemble run or ensemble ID'
+  status:
+    description: 'Final status: converged, merged, failed, timeout'
+  findings-count:
+    description: 'Number of findings from analysis'
+  comment-url:
+    description: 'URL of the posted GitHub comment (if any)'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -1,0 +1,21 @@
+# Ensemble Issue Analysis — runs when 'ensemble-review' label is added
+name: Ensemble Issue Analysis
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  analyze:
+    if: github.event.label.name == 'ensemble-review'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: your-org/ensemble-action@v1
+        with:
+          ensemble-url: ${{ secrets.ENSEMBLE_URL }}
+          workflow: 'Bug Fix'
+          mode: ensemble
+          ensemble-size: 3
+          post-results: comment

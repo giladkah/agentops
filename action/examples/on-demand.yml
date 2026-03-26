@@ -1,0 +1,21 @@
+# Ensemble On-Demand — triggered by /ensemble comment on any PR or issue
+name: Ensemble On-Demand
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  ensemble:
+    if: contains(github.event.comment.body, '/ensemble')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: your-org/ensemble-action@v1
+        with:
+          ensemble-url: ${{ secrets.ENSEMBLE_URL }}
+          mode: ensemble
+          ensemble-size: 3
+          post-results: comment

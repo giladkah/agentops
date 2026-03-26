@@ -1,0 +1,24 @@
+# Manual Ensemble Run — triggered via GitHub UI with issue number input
+name: Manual Ensemble Run
+on:
+  workflow_dispatch:
+    inputs:
+      issue-number:
+        description: 'Issue number to analyze'
+        required: true
+      mode:
+        description: 'single or ensemble'
+        default: 'single'
+
+permissions:
+  issues: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: your-org/ensemble-action@v1
+        with:
+          ensemble-url: ${{ secrets.ENSEMBLE_URL }}
+          mode: ${{ github.event.inputs.mode }}
+          post-results: comment

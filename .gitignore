@@ -6,3 +6,7 @@ __pycache__/
 .wt/
 *.bak_*
 multi_repo_patch/
+
+# Action build artifacts
+action/node_modules/
+action/lib/

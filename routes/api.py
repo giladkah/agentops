@@ -22,6 +22,11 @@ import services.telemetry as telemetry
 api = Blueprint("api", __name__, url_prefix="/api")
 
 
+@api.route("/health")
+def health():
+    return jsonify({"status": "ok", "version": "0.14"})
+
+
 @api.errorhandler(404)
 def api_not_found(e):
     return jsonify({"error": "Not found"}), 404
@@ -196,7 +201,11 @@ def set_default_repo_endpoint(repo_id):
 
 @api.route("/runs", methods=["GET"])
 def list_runs():
-    runs = Run.query.order_by(Run.started_at.desc()).limit(50).all()
+    query = Run.query
+    source_id = request.args.get("source_id")
+    if source_id:
+        query = query.filter(Run.source_id == source_id)
+    runs = query.order_by(Run.started_at.desc()).limit(50).all()
     result = []
     for r in runs:
         d = r.to_dict()
@@ -369,6 +378,98 @@ def get_run_issues(run_id):
 
     return jsonify({"consensus": consensus, "majority": majority, "unique": unique,
         "total_reviewers": n, "total_issues": len(all_issues), "reviewers": all_agent_info})
+
+@api.route("/runs/<run_id>/results", methods=["GET"])
+def get_run_results(run_id):
+    """Return a flattened summary of run findings suitable for posting as a GitHub comment."""
+    run = Run.query.get_or_404(run_id)
+    review_stages = {"review", "review-quality", "review-security", "security"}
+    review_agents = [a for a in run.agents if a.stage_name in review_stages and a.status in ("done", "converged")]
+
+    findings = []
+    for tier_name in ("consensus", "majority", "unique"):
+        # Reuse the issues endpoint logic inline
+        pass
+
+    # Build issues via the same logic as get_run_issues
+    import re as _re
+
+    def _norm(title):
+        t = title.lower()
+        t = _re.sub(r"[^a-z0-9 ]", " ", t)
+        stop = {"the","a","an","is","are","in","on","at","to","of","and","or","not","for","with","that","this","be","been","as","by","do","it","its"}
+        return {w for w in t.split() if w not in stop and len(w) > 2}
+
+    def _match(a, b):
+        ta, tb = _norm(a.get("title","")), _norm(b.get("title",""))
+        if not ta or not tb: return False
+        fa = (a.get("file","") or "").split("/")[-1].lower()
+        fb = (b.get("file","") or "").split("/")[-1].lower()
+        file_hit = bool(fa and fb and fa == fb)
+        inter = len(ta & tb)
+        mn = min(len(ta), len(tb))
+        score = (inter / mn * 0.7) if mn else 0
+        score = max(score, inter / len(ta | tb) if ta | tb else 0)
+        if file_hit: score += 0.15
+        return score >= 0.38
+
+    _sev_ord = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+    all_issues = []
+    for ag in review_agents:
+        for iss in ag.get_structured_issues():
+            all_issues.append({**iss, "_aid": ag.id})
+
+    groups = []
+    for iss in all_issues:
+        placed = False
+        for grp in groups:
+            if any(_match(iss, g) for g in grp):
+                grp.append(iss); placed = True; break
+        if not placed:
+            groups.append([iss])
+
+    n = len(review_agents)
+    consensus, majority, unique = [], [], []
+    for grp in groups:
+        by_agent = {}
+        for i in grp:
+            aid = i["_aid"]
+            if aid not in by_agent or len(i.get("note","")) > len(by_agent[aid].get("note","")): by_agent[aid] = i
+        count = len(by_agent)
+        primary = max(grp, key=lambda x: len((x.get("title",""))+(x.get("note",""))))
+        merged = {
+            "title": primary.get("title",""),
+            "file": primary.get("file",""),
+            "line": primary.get("line"),
+            "severity": min([i.get("severity","medium") for i in by_agent.values()], key=lambda s: _sev_ord.get(s,2)),
+            "category": primary.get("category","quality"),
+            "note": primary.get("note",""),
+            "found_count": count,
+            "total_reviewers": n,
+        }
+        if count >= n: consensus.append(merged)
+        elif count > n / 2: majority.append(merged)
+        else: unique.append(merged)
+
+    for tier in (consensus, majority, unique):
+        tier.sort(key=lambda i: _sev_ord.get(i.get("severity","medium"), 2))
+
+    duration = run.duration_minutes()
+    return jsonify({
+        "run_id": run.id,
+        "status": run.status,
+        "title": run.title,
+        "consensus": consensus,
+        "majority": majority,
+        "unique": unique,
+        "total_reviewers": n,
+        "total_findings": len(consensus) + len(majority) + len(unique),
+        "duration_minutes": duration,
+        "total_cost": run.total_cost,
+        "workflow": run.workflow.name if run.workflow else None,
+    })
+
 
 # ── Agents ──
 
@@ -650,15 +751,16 @@ def get_signal(signal_id):
 
 @api.route("/signals", methods=["POST"])
 def create_signal():
-    """Create a manual signal."""
+    """Create a signal. Accepts optional source and source_id for external integrations."""
     data = request.json
     signal = Signal(
-        source="manual",
+        source=data.get("source", "manual"),
+        source_id=data.get("source_id"),
         title=data.get("title", "Manual signal"),
         summary=data.get("summary", data.get("text", "")),
         severity=data.get("severity", "medium"),
         files_hint=json.dumps(data.get("files_hint", [])),
-        raw_payload=json.dumps({"text": data.get("text", data.get("summary", ""))}),
+        raw_payload=json.dumps(data.get("raw_payload", {"text": data.get("text", data.get("summary", ""))})),
         status="new",
     )
     db.session.add(signal)

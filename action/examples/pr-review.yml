@@ -1,0 +1,25 @@
+# Ensemble PR Review — runs analysis on every PR open/update
+name: Ensemble PR Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  group: ensemble-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: your-org/ensemble-action@v1
+        with:
+          ensemble-url: ${{ secrets.ENSEMBLE_URL }}
+          workflow: 'Code Review'
+          mode: single
+          post-results: comment
+          timeout: 20

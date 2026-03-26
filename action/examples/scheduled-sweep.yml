@@ -1,0 +1,21 @@
+# Nightly Bug Sweep — runs analysis on issues labeled 'bug' every weekday at 2am
+name: Nightly Bug Sweep
+on:
+  schedule:
+    - cron: '0 2 * * 1-5'
+
+permissions:
+  issues: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: your-org/ensemble-action@v1
+        with:
+          ensemble-url: ${{ secrets.ENSEMBLE_URL }}
+          workflow: 'Bug Fix'
+          mode: single
+          label-trigger: 'bug'
+          post-results: comment
+          cost-limit: 2

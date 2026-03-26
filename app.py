@@ -61,6 +61,9 @@ def create_app(repo_path: str = None, api_key: str = None):
     return app
 
 
+# Module-level app instance for gunicorn (e.g. gunicorn "app:create_app()")
+# Also used when running directly via `python app.py` below.
+
 if __name__ == "__main__":
     import argparse
 
