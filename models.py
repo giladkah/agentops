@@ -144,6 +144,23 @@ class Signal(db.Model):
     def get_raw_payload(self):
         return json.loads(self.raw_payload) if self.raw_payload else {}
 
+    @property
+    def external_url(self):
+        """Extract external URL from raw_payload based on source type."""
+        try:
+            raw = self.get_raw_payload()
+            if self.source == "sentry":
+                # Import path stores permalink directly; webhook path nests under data.issue
+                return raw.get("permalink") or raw.get("data", {}).get("issue", {}).get("permalink") or ""
+            elif self.source == "github":
+                return raw.get("html_url") or raw.get("issue", {}).get("html_url") or raw.get("pull_request", {}).get("html_url") or ""
+            elif self.source == "shortcut":
+                story = raw.get("actions", [{}])[0].get("entity_body", raw) if raw.get("actions") else raw
+                return story.get("app_url") or ""
+        except Exception:
+            pass
+        return ""
+
     def get_proposed_run(self):
         return json.loads(self.proposed_run) if self.proposed_run else {}
 
@@ -240,7 +257,8 @@ class SignalCluster(db.Model):
             "repository": self.repository.to_dict() if self.repository else None,
             "signal_count": self.signal_count(),
             "signals": [{"id": s.id, "title": s.title, "source": s.source,
-                         "severity": s.severity, "status": s.status, "source_id": s.source_id}
+                         "severity": s.severity, "status": s.status, "source_id": s.source_id,
+                         "external_url": s.external_url}
                         for s in self.signals],
         }
 
@@ -465,9 +483,18 @@ class Agent(db.Model):
     finished_at = db.Column(db.DateTime, nullable=True)
     output_log = db.Column(db.Text, default="")
     issues_json = db.Column(db.Text, default="[]")
+    handoff_json = db.Column(db.Text, default="{}")
 
     run = db.relationship("Run", backref="agents")
     persona = db.relationship("Persona")
+
+    def _safe_load_handoff(self):
+        if not self.handoff_json or self.handoff_json == "{}":
+            return None
+        try:
+            return json.loads(self.handoff_json)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def get_structured_issues(self) -> list:
         import json as _j
@@ -498,6 +525,7 @@ class Agent(db.Model):
             "tokens_in": self.tokens_in, "tokens_out": self.tokens_out,
             "cost": self.cost, "duration_minutes": self.duration_minutes(),
             "output_log": self.output_log or "",
+            "handoff": self._safe_load_handoff(),
             "issues_data": self.get_structured_issues(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,

@@ -390,6 +390,7 @@ class AgentRunner:
         on_complete: Optional[Callable] = None,
         app=None,
         max_turns: int = None,
+        agent_role: str = None,
     ) -> bool:
         """Launch a Claude agent — dispatches to API or CLI backend based on current mode."""
         if agent_id in self._active_cancel or agent_id in self._active_procs:
@@ -402,13 +403,13 @@ class AgentRunner:
         self.stream_buffers[agent_id] = buf
 
         if self._mode == "api":
-            return self._launch_api(agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns)
+            return self._launch_api(agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns, agent_role=agent_role)
         else:
             return self._launch_cli(agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns)
 
     # ── API Backend (streaming + tool use) ──
 
-    def _launch_api(self, agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns=MAX_AGENTIC_TURNS):
+    def _launch_api(self, agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns=MAX_AGENTIC_TURNS, agent_role=None):
         cancel_event = threading.Event()
         self._active_cancel[agent_id] = cancel_event
 
@@ -498,6 +499,9 @@ class AgentRunner:
                                 buf.add("tool_call", {"tool": t_name, "input": t_input, "n": tool_calls})
 
                                 result = execute_tool(t_name, t_input, worktree_path)
+                                # Compress tool output for token savings
+                                from services.token_optimizer import compress_tool_output
+                                result = compress_tool_output(t_name, t_input, result, agent_role)
                                 buf.add("tool_result", {
                                     "tool": t_name, "preview": result[:300],
                                     "length": len(result), "ok": not result.startswith("Error"),
@@ -515,6 +519,11 @@ class AgentRunner:
 
                         messages.append({"role": "assistant", "content": final.content})
                         messages.append({"role": "user", "content": tool_results})
+
+                        # Compress old messages every 3 turns after turn 4
+                        if turns > 4 and turns % 3 == 0:
+                            from services.token_optimizer import summarize_old_messages
+                            messages = summarize_old_messages(messages, keep_last_n=3)
 
                     except anthropic.APIError as e:
                         err = f"API Error: {e.message}"

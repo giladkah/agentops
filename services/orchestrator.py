@@ -217,12 +217,46 @@ class RunOrchestrator:
         agent.started_at = datetime.now(timezone.utc)
         db.session.commit()
 
-        # Build the prompt
+        # Build the prompt with enriched context from previous stage handoffs
         persona = agent.persona
+        agent_role = persona.role if persona else agent.stage_name
+
+        # Collect handoffs from completed agents in previous stages
+        extra_context = f"Stage: {agent.stage_name}\nRun: {run.title}\nBranch: agentops/{wt_name}"
+
+        previous_handoffs = []
+        for prev_agent in run.agents:
+            if prev_agent.stage_name != agent.stage_name and prev_agent.status in ("done", "converged"):
+                try:
+                    h = json.loads(prev_agent.handoff_json) if prev_agent.handoff_json else {}
+                    if h and h != {}:
+                        previous_handoffs.append({
+                            "from": f"{prev_agent.name} ({prev_agent.stage_name})",
+                            "handoff": h,
+                        })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        if previous_handoffs:
+            extra_context += "\n\n## Previous Stage Results\n"
+            for ph in previous_handoffs:
+                handoff_str = json.dumps(ph['handoff'], indent=2)
+                if len(handoff_str) > 3000:
+                    handoff_str = handoff_str[:3000] + "\n... [truncated]"
+                extra_context += f"\n### From {ph['from']}\n"
+                extra_context += handoff_str + "\n"
+
+        # For review round 2+, add round summary
+        if stage.get("converge") and run.review_round > 0:
+            from services.token_optimizer import build_review_round_summary
+            round_summary = build_review_round_summary(run)
+            if round_summary:
+                extra_context += "\n\n" + round_summary
+
         prompt = self.runner.build_prompt(
             persona_template=persona.prompt_template,
             task=run.task_description,
-            extra_context=f"Stage: {agent.stage_name}\nRun: {run.title}\nBranch: agentops/{wt_name}",
+            extra_context=extra_context,
         )
         agent.task_prompt = prompt
         db.session.commit()
@@ -251,6 +285,7 @@ class RunOrchestrator:
             on_complete=on_complete,
             app=self.app,
             max_turns=max_turns,
+            agent_role=agent_role,
         )
 
     def _on_agent_complete(self, agent_id: str, success: bool, output: str):
@@ -296,6 +331,18 @@ class RunOrchestrator:
         if agent.worktree_path:
             wt_name = agent.worktree_path.split("/")[-1]
             self.git.commit_worktree(wt_name, f"AgentOps: {agent.name} — {agent.stage_name}")
+
+        # Extract structured handoff from agent output
+        try:
+            from services.token_optimizer import extract_handoff
+            handoff = extract_handoff(
+                output,
+                agent.persona.role if agent.persona else agent.stage_name,
+                agent.worktree_path,
+            )
+            agent.handoff_json = json.dumps(handoff)
+        except Exception as e:
+            print(f"  ⚠️ Handoff extraction failed: {e}")
 
         db.session.commit()
         print(f"  ✓ Agent {agent.name} status={agent.status}, cost=${agent.cost:.2f}")

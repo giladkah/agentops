@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentOps — Focus</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: {
+              primary:   '#09090b',
+              secondary: '#111113',
+              tertiary:  '#18181b',
+              elevated:  '#1e1e22',
+              hover:     '#252529',
+            },
+            content: {
+              primary:   'rgba(255,255,255,0.92)',
+              secondary: 'rgba(255,255,255,0.55)',
+              muted:     'rgba(255,255,255,0.36)',
+              faint:     'rgba(255,255,255,0.14)',
+            },
+            accent: {
+              DEFAULT: '#818cf8',
+              hover:   '#6366f1',
+              muted:   'rgba(99,102,241,0.14)',
+              subtle:  'rgba(99,102,241,0.08)',
+            },
+            sev: {
+              critical:      '#ef4444',
+              'critical-bg': 'rgba(239,68,68,0.12)',
+              high:          '#f97316',
+              'high-bg':     'rgba(249,115,22,0.12)',
+              medium:        '#eab308',
+              'medium-bg':   'rgba(234,179,8,0.10)',
+              low:           '#6b7280',
+              'low-bg':      'rgba(107,114,128,0.10)',
+            },
+            st: {
+              open:        '#fbbf24',
+              'open-bg':   'rgba(251,191,36,0.12)',
+              triaging:    '#60a5fa',
+              'triaging-bg':'rgba(96,165,250,0.12)',
+              ready:       '#34d399',
+              'ready-bg':  'rgba(52,211,153,0.12)',
+              running:     '#818cf8',
+              'running-bg':'rgba(129,140,248,0.12)',
+              done:        '#22c55e',
+              'done-bg':   'rgba(34,197,94,0.12)',
+              failed:      '#ef4444',
+              'failed-bg': 'rgba(239,68,68,0.12)',
+            },
+            border: {
+              DEFAULT: 'rgba(255,255,255,0.06)',
+              hover:   'rgba(255,255,255,0.10)',
+              active:  'rgba(99,102,241,0.36)',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'Menlo', 'monospace'],
+          },
+          fontSize: {
+            'xs':  ['11px', '16px'],
+            'sm':  ['12px', '16px'],
+            'base':['13px', '20px'],
+            'lg':  ['14px', '20px'],
+            'xl':  ['16px', '24px'],
+            '2xl': ['20px', '28px'],
+          },
+          borderRadius: {
+            'sm': '4px',
+            DEFAULT: '6px',
+            'lg': '8px',
+            'xl': '12px',
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { overflow: hidden; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+    .animate-fade { animation: fadeIn 0.22s ease-out both; }
+    .animate-slide-in { animation: slideIn 0.2s ease-out both; }
+    .animate-pulse { animation: pulse 1.2s ease-in-out infinite; }
+    .sidebar-icon { transition: background 0.15s, color 0.15s; }
+    .sidebar-icon:hover { background: rgba(255,255,255,0.06); }
+    .sidebar-icon.active { background: rgba(99,102,241,0.14); color: rgb(129,140,248); }
+    textarea:focus, input:focus { outline: none; }
+  </style>
+</head>
+
+<body class="bg-surface-primary text-content-primary font-sans h-screen">
+<div id="app" class="flex h-full">
+
+  <!-- ─── Sidebar ─── -->
+  <aside class="w-14 bg-surface-secondary border-r border-border flex flex-col items-center py-3 flex-shrink-0">
+    <a href="/" class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center text-accent font-semibold text-sm mb-6" title="Back to Dashboard">A</a>
+    <button class="sidebar-icon active w-8 h-8 rounded-lg flex items-center justify-center" title="Focus Mode">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2"/></svg>
+    </button>
+    <div class="mt-auto">
+      <a href="/" class="sidebar-icon w-8 h-8 rounded-lg flex items-center justify-center text-content-muted" title="Dashboard">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+      </a>
+    </div>
+  </aside>
+
+  <!-- ─── Main ─── -->
+  <main class="flex-1 flex flex-col overflow-hidden min-w-0">
+
+    <!-- Header -->
+    <header class="h-12 border-b border-border flex items-center px-6 gap-3 flex-shrink-0">
+      <h1 class="text-lg font-semibold tracking-tight">Focus</h1>
+      <div id="hdr-progress" class="flex items-center gap-2 text-xs text-content-muted"></div>
+      <div class="ml-auto flex items-center gap-2">
+        <div class="flex items-center gap-1 bg-surface-tertiary rounded-lg p-1">
+          <button id="mode-focus" onclick="setMode('focus')" class="text-xs font-medium px-3 py-1 rounded transition-colors">Focus</button>
+          <button id="mode-all"   onclick="setMode('all')"   class="text-xs font-medium px-3 py-1 rounded transition-colors">All</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <div class="flex-1 overflow-hidden relative">
+
+      <!-- ════ FOCUS MODE ════ -->
+      <div id="view-focus" class="h-full flex">
+
+        <!-- Left: Finding card (scrollable) -->
+        <div class="flex-1 overflow-y-auto px-6 py-6">
+          <div id="focus-card" class="max-w-2xl mx-auto animate-fade"></div>
+        </div>
+
+        <!-- Right: Conversation panel -->
+        <div class="w-80 border-l border-border flex flex-col bg-surface-secondary flex-shrink-0">
+          <!-- Context header -->
+          <div id="chat-header" class="h-12 border-b border-border flex items-center px-4 gap-2 flex-shrink-0">
+            <span class="text-sm font-medium text-content-secondary">Conversation</span>
+          </div>
+          <!-- Messages -->
+          <div id="chat-messages" class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1"></div>
+          <!-- Input -->
+          <div class="border-t border-border px-3 py-3 flex-shrink-0">
+            <div class="flex items-end gap-2 bg-surface-tertiary border border-border rounded-xl px-3 py-1.5 focus-within:border-accent transition-colors">
+              <textarea id="chat-input" rows="1" placeholder="Ask about this finding..."
+                class="flex-1 bg-transparent border-none text-sm text-content-primary resize-none focus:outline-none font-sans py-1.5 min-h-[22px] max-h-[96px]"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
+                oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,96)+'px'"></textarea>
+              <button onclick="sendChat()" class="w-7 h-7 rounded-lg bg-accent text-white flex items-center justify-center flex-shrink-0 hover:opacity-85 transition-opacity mb-0.5">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+            <div class="flex items-center gap-2 mt-2">
+              <button onclick="nextFinding()" class="text-xs text-content-muted hover:text-content-secondary transition-colors">Skip to next &rarr;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════ ALL MODE ════ -->
+      <div id="view-all" class="h-full flex hidden">
+        <!-- Table -->
+        <div class="flex-1 overflow-y-auto px-6 py-6">
+          <div id="all-table" class="max-w-4xl mx-auto"></div>
+        </div>
+        <!-- Detail panel (right, when a row is selected) -->
+        <div id="detail-panel" class="w-80 border-l border-border flex flex-col bg-surface-secondary flex-shrink-0 hidden">
+          <div id="detail-header" class="h-12 border-b border-border flex items-center px-4 gap-2 flex-shrink-0"></div>
+          <div id="detail-tabs" class="border-b border-border flex gap-4 px-4 pt-2 flex-shrink-0"></div>
+          <div id="detail-content" class="flex-1 overflow-y-auto px-4 py-4"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ════ TOAST ════ -->
+<div id="toast" class="fixed bottom-4 right-4 z-40 hidden">
+  <div class="bg-surface-elevated border border-border rounded-lg px-4 py-2 text-sm shadow-lg animate-fade"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════
+const state = {
+  mode: 'focus',
+  findings: [],
+  total: 0,
+  focusQueue: [],
+  focusIndex: 0,
+  reviewedIds: new Set(),
+  selectedId: null,
+  detailTab: 'overview',
+  chatSending: false,
+};
+
+// ═══════════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════════
+const api = {
+  async get(p) { const r = await fetch('/api'+p); if(!r.ok) throw new Error(await r.text()); return r.json(); },
+  async post(p,b) { const r = await fetch('/api'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if(!r.ok) throw new Error(await r.text()); return r.json(); },
+  async put(p,b) { const r = await fetch('/api'+p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if(!r.ok) throw new Error(await r.text()); return r.json(); },
+  async del(p) { const r = await fetch('/api'+p,{method:'DELETE'}); if(!r.ok) throw new Error(await r.text()); return r.json(); },
+};
+
+// ═══════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════
+function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso)) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff/60)+'m ago';
+  if (diff < 86400) return Math.floor(diff/3600)+'h ago';
+  return Math.floor(diff/86400)+'d ago';
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.querySelector('div').textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.add('hidden'), 2400);
+}
+
+function findById(id) { return state.findings.find(f => f.id === id); }
+function currentFinding() { const id = state.focusQueue[state.focusIndex]; return id ? findById(id) : null; }
+
+// Render markdown to HTML (escapes first, then applies formatting)
+function renderMd(s) {
+  if (!s) return '';
+  let h = esc(s);
+  // Code blocks
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-surface-tertiary text-xs font-mono rounded-lg px-3 py-2 my-2 overflow-x-auto border border-border whitespace-pre-wrap"><code>$2</code></pre>');
+  // Headers
+  h = h.replace(/^### (.+)$/gm, '<div class="text-xs font-bold text-content-primary mt-3 mb-1">$1</div>');
+  h = h.replace(/^## (.+)$/gm, '<div class="text-sm font-bold text-content-primary mt-3 mb-1">$1</div>');
+  // Bold
+  h = h.replace(/\*\*(.+?)\*\*/g, '<strong class="text-content-primary font-semibold">$1</strong>');
+  // Inline code
+  h = h.replace(/`([^`]+)`/g, '<code class="text-xs font-mono bg-surface-tertiary px-1 py-0.5 rounded-sm">$1</code>');
+  // Bullet lists
+  h = h.replace(/^[\-\*] (.+)$/gm, '<div class="pl-3 relative my-0.5"><span class="absolute left-0 text-content-faint">&middot;</span>$1</div>');
+  // Numbered lists
+  h = h.replace(/^(\d+)\. (.+)$/gm, '<div class="pl-4 relative my-0.5"><span class="absolute left-0 text-content-faint text-xs">$1.</span>$2</div>');
+  // Line breaks
+  h = h.replace(/\n/g, '<br>');
+  h = h.replace(/(<br>\s*){3,}/g, '<br><br>');
+  return h;
+}
+// Alias for backwards compat
+function fmtMsg(s) { return renderMd(s); }
+
+// ═══════════════════════════════════════════════════════
+// Reusable Components
+// ═══════════════════════════════════════════════════════
+function StatusBadge(status) {
+  const c = ({
+    open:'bg-st-open-bg text-st-open', triaging:'bg-st-triaging-bg text-st-triaging',
+    ready:'bg-st-ready-bg text-st-ready', running:'bg-st-running-bg text-st-running',
+    done:'bg-st-done-bg text-st-done', failed:'bg-st-failed-bg text-st-failed',
+  })[status] || 'bg-surface-tertiary text-content-muted';
+  return `<span class="${c} text-xs font-medium px-2 py-1 rounded-sm capitalize">${esc(status)}</span>`;
+}
+
+function SeverityBadge(sev) {
+  const c = ({
+    critical:'bg-sev-critical-bg text-sev-critical', high:'bg-sev-high-bg text-sev-high',
+    medium:'bg-sev-medium-bg text-sev-medium', low:'bg-sev-low-bg text-sev-low',
+  })[sev] || 'bg-surface-tertiary text-content-muted';
+  return `<span class="${c} text-xs font-medium px-2 py-1 rounded-sm capitalize">${esc(sev)}</span>`;
+}
+
+function SourceIcon(src) {
+  return ({sentry:'\u{1F41B}',shortcut:'\u{1F3AF}',github:'\u{1F517}',manual:'\u{270F}\u{FE0F}',scan:'\u{1F52C}'})[src]||'\u{1F4CB}';
+}
+
+function Tab(label, active, onclick) {
+  const cls = active
+    ? 'text-sm font-medium pb-2 border-b-2 text-content-primary border-accent cursor-pointer'
+    : 'text-sm font-medium pb-2 border-b-2 border-transparent text-content-muted hover:text-content-secondary cursor-pointer transition-colors';
+  return `<button class="${cls}" onclick="${onclick}">${esc(label)}</button>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// Data
+// ═══════════════════════════════════════════════════════
+async function loadFindings() {
+  try {
+    const data = await api.get('/clusters?limit=200&sort=severity');
+    state.findings = data.clusters || [];
+    state.total = data.total || 0;
+
+    const priority = {critical:0, high:1, medium:2, low:3};
+    const needsReview = state.findings.filter(f => ['open','triaging','ready'].includes(f.status));
+    needsReview.sort((a,b) => (priority[a.severity]??3) - (priority[b.severity]??3));
+    state.focusQueue = needsReview.map(f => f.id);
+
+    if (state.focusIndex >= state.focusQueue.length) state.focusIndex = 0;
+  } catch (e) { console.error('Load error:', e); }
+  render();
+}
+
+// ═══════════════════════════════════════════════════════
+// Mode Toggle
+// ═══════════════════════════════════════════════════════
+function setMode(mode) { state.mode = mode; render(); }
+
+// ═══════════════════════════════════════════════════════
+// Main Render
+// ═══════════════════════════════════════════════════════
+function render() {
+  const mF = document.getElementById('mode-focus');
+  const mA = document.getElementById('mode-all');
+  const activeClass = 'text-xs font-medium px-3 py-1 rounded bg-accent/14 text-accent transition-colors';
+  const inactiveClass = 'text-xs font-medium px-3 py-1 rounded text-content-muted hover:text-content-secondary transition-colors';
+  mF.className = state.mode === 'focus' ? activeClass : inactiveClass;
+  mA.className = state.mode === 'all' ? activeClass : inactiveClass;
+
+  document.getElementById('view-focus').classList.toggle('hidden', state.mode !== 'focus');
+  document.getElementById('view-all').classList.toggle('hidden', state.mode !== 'all');
+
+  if (state.mode === 'focus') renderFocus();
+  else renderAll();
+
+  renderHeaderProgress();
+}
+
+function renderHeaderProgress() {
+  const el = document.getElementById('hdr-progress');
+  if (state.mode !== 'focus' || !state.focusQueue.length) { el.innerHTML = `<span>${state.total} findings</span>`; return; }
+  const reviewed = state.reviewedIds.size;
+  const total = state.focusQueue.length;
+  const pct = Math.min(100, Math.round((reviewed/total)*100));
+  el.innerHTML = `
+    <span>${reviewed} of ${total} reviewed</span>
+    <div class="w-24 h-1 bg-surface-tertiary rounded-full overflow-hidden">
+      <div class="h-full bg-accent rounded-full transition-all duration-300" style="width:${pct}%"></div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════
+// Focus Mode
+// ═══════════════════════════════════════════════════════
+function renderFocus() {
+  const container = document.getElementById('focus-card');
+  const f = currentFinding();
+
+  if (!f) {
+    if (state.focusQueue.length === 0) {
+      container.innerHTML = emptyState('\u{1F50D}', 'No findings to review', 'Run tasks with parallel agents. Disagreement surfaces here.');
+    } else {
+      container.innerHTML = emptyState('\u{2705}', 'All caught up', `${state.reviewedIds.size} findings reviewed this session.`);
+    }
+    document.getElementById('chat-messages').innerHTML = '';
+    document.getElementById('chat-header').innerHTML = '<span class="text-sm font-medium text-content-muted">Conversation</span>';
+    return;
+  }
+
+  container.innerHTML = renderFindingCard(f);
+  renderChatPanel(f);
+}
+
+function emptyState(icon, title, sub) {
+  return `<div class="flex flex-col items-center justify-center text-center py-8">
+    <div class="text-2xl mb-3 opacity-30">${icon}</div>
+    <div class="text-lg font-medium text-content-secondary mb-1">${title}</div>
+    <div class="text-sm text-content-muted">${sub}</div>
+  </div>`;
+}
+
+function renderFindingCard(f) {
+  const sources = [...new Set((f.signals||[]).map(s => s.source))];
+  const sourceStr = sources.map(s => `<span class="inline-flex items-center gap-1">${SourceIcon(s)} ${esc(s)}</span>`).join('<span class="text-content-faint mx-1">\u{00B7}</span>');
+  const signalCount = f.signal_count || (f.signals||[]).length;
+  const repoName = f.repository ? f.repository.name : '';
+  const files = f.files_hint || [];
+  const pr = f.proposed_run || {};
+  const duplicates = findDuplicates(f);
+
+  let html = `<div class="bg-surface-secondary border border-border rounded-xl overflow-hidden">`;
+
+  // Header
+  const canRecheck = (f.summary || f.root_cause) && f.status !== 'done';
+  html += `<div class="px-6 pt-6 pb-4">`;
+  html += `<div class="flex items-center justify-between mb-3">`;
+  html += `<div class="flex items-center gap-2">${StatusBadge(f.status)}</div>`;
+  if (canRecheck) {
+    html += `<button onclick="recheckFinding('${f.id}')" id="recheck-btn-${f.id}"
+      class="text-xs font-medium px-3 py-1.5 rounded-lg border border-border text-content-muted hover:border-accent hover:text-accent transition-colors">Re-run check</button>`;
+  }
+  html += `</div>`;
+  html += `<h2 class="text-xl font-semibold mb-3 leading-snug">${esc(f.title||'Untitled finding')}</h2>`;
+  html += `<div class="flex items-center gap-2 text-xs text-content-muted flex-wrap">`;
+  html += `${SeverityBadge(f.severity)}`;
+  if (sourceStr) html += `<span class="text-content-faint">\u{00B7}</span>${sourceStr}`;
+  html += `<span class="text-content-faint">\u{00B7}</span><span>${signalCount} signal${signalCount!==1?'s':''}</span>`;
+  html += `<span class="text-content-faint">\u{00B7}</span><span>${timeAgo(f.created_at)}</span>`;
+  if (repoName) html += `<span class="text-content-faint">\u{00B7}</span><span class="font-mono">${esc(repoName)}</span>`;
+  html += `</div></div>`;
+
+  // Summary + Root Cause
+  if (f.summary || f.root_cause) {
+    html += `<div class="border-t border-border px-6 py-4 space-y-4">`;
+    if (f.summary) {
+      html += `<div>
+        <div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-1">Summary</div>
+        <div class="text-sm text-content-secondary leading-relaxed">${renderMd(f.summary)}</div>
+      </div>`;
+    }
+    if (f.root_cause) {
+      html += `<div>
+        <div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-1">Root Cause</div>
+        <div class="bg-surface-tertiary rounded-lg px-4 py-3 text-sm text-content-secondary leading-relaxed">${renderMd(f.root_cause)}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Suggested Duplicates
+  if (duplicates.length > 0) {
+    html += `<div class="border-t border-border px-6 py-4">`;
+    html += `<div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">Suggested Duplicates</div>`;
+    html += `<div class="space-y-1">`;
+    for (const d of duplicates.slice(0,3)) {
+      html += `<div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-surface-tertiary hover:bg-surface-hover transition-colors cursor-pointer" onclick="openDetail('${d.id}')">
+        <span class="flex-1 text-sm text-content-secondary truncate">${esc(d.title)}</span>
+        ${SeverityBadge(d.severity)}
+        <span class="text-xs text-content-muted">${d.signal_count||0} signals</span>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  // Recommended Action
+  if (pr.task_description || pr.title) {
+    html += `<div class="border-t border-border px-6 py-4">`;
+    html += `<div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">Recommended Action</div>`;
+    html += `<div class="bg-accent-subtle border border-accent/10 rounded-lg px-4 py-3">`;
+    if (pr.title) html += `<div class="text-sm font-medium text-content-primary mb-1">${esc(pr.title)}</div>`;
+    if (pr.task_description) html += `<div class="text-sm text-content-secondary leading-relaxed">${renderMd(pr.task_description)}</div>`;
+    if (pr.workflow_name) html += `<div class="mt-2 text-xs text-content-muted">Workflow: ${esc(pr.workflow_name)}${pr.model?' \u{00B7} Model: '+esc(pr.model):''}</div>`;
+    html += `</div></div>`;
+  }
+
+  // Signals preview
+  if ((f.signals||[]).length > 0) {
+    html += `<div class="border-t border-border px-6 py-4">`;
+    html += `<div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">Signals</div>`;
+    html += `<div class="space-y-1">`;
+    for (const s of (f.signals||[]).slice(0,5)) {
+      html += `<div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-tertiary">
+        <span class="text-sm">${SourceIcon(s.source)}</span>
+        <span class="text-sm text-content-secondary truncate flex-1">${esc(s.title)}</span>
+        <span class="text-xs text-content-muted font-mono">${esc(s.source_id||'')}</span>
+      </div>`;
+    }
+    if ((f.signals||[]).length > 5) html += `<div class="text-xs text-content-muted px-3 py-1">+${(f.signals||[]).length - 5} more</div>`;
+    html += `</div></div>`;
+  }
+
+  // Files
+  if (files.length > 0) {
+    html += `<div class="border-t border-border px-6 py-4">`;
+    html += `<div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">Related Files</div>`;
+    html += `<div class="flex flex-wrap gap-1">`;
+    for (const file of files.slice(0,8)) {
+      html += `<span class="text-xs font-mono bg-surface-tertiary text-content-muted px-2 py-1 rounded-sm">${esc(file.split('/').pop())}</span>`;
+    }
+    if (files.length > 8) html += `<span class="text-xs text-content-muted">+${files.length-8} more</span>`;
+    html += `</div></div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function findDuplicates(f) {
+  if (!f) return [];
+  const words = new Set((f.title||'').toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  const results = [];
+  for (const o of state.findings) {
+    if (o.id === f.id || o.status === 'done' || o.status === 'failed') continue;
+    const ow = (o.title||'').toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    const overlap = ow.filter(w => words.has(w)).length;
+    if (overlap >= 2) results.push({...o, _score: overlap});
+  }
+  results.sort((a,b) => b._score - a._score);
+  return results.slice(0,3);
+}
+
+// ═══════════════════════════════════════════════════════
+// Chat Panel (Focus mode right side)
+// ═══════════════════════════════════════════════════════
+function renderChatPanel(f) {
+  // Header
+  const hdr = document.getElementById('chat-header');
+  hdr.innerHTML = `
+    <span class="text-sm font-medium text-content-secondary flex-1 truncate">${esc(f.title||'Finding')}</span>
+    <span class="text-xs text-content-muted">${(f.chat_messages||[]).filter(m=>m.role==='user'||m.role==='assistant').length} messages</span>
+  `;
+
+  // Messages
+  const container = document.getElementById('chat-messages');
+  const msgs = (f.chat_messages||[]).filter(m => {
+    if (m.role === 'user' || m.role === 'assistant') return true;
+    if (m.role === 'system') {
+      try {
+        const d = JSON.parse(m.content);
+        return ['retriage_merge','retriage_close','retriage_severity','retriage_merged_into','recheck'].includes(d.type);
+      } catch(e) { return false; }
+    }
+    return false;
+  });
+
+  if (!msgs.length) {
+    container.innerHTML = `<div class="flex-1 flex flex-col items-center justify-center text-center px-4">
+      <div class="text-2xl opacity-15 mb-2">?</div>
+      <div class="text-sm text-content-muted mb-1">Ask anything about this finding</div>
+      <div class="text-xs text-content-faint leading-relaxed mb-3">The AI has full context on all related issues.</div>
+      <div class="space-y-1.5 text-left w-full">
+        <div class="text-xs text-content-muted bg-surface-tertiary rounded-xl px-3 py-2 cursor-pointer hover:bg-surface-hover transition-colors" onclick="fillChat('What files are affected?')">What files are affected?</div>
+        <div class="text-xs text-content-muted bg-surface-tertiary rounded-xl px-3 py-2 cursor-pointer hover:bg-surface-hover transition-colors" onclick="fillChat('Start a run to fix this')">Start a run to fix this</div>
+        <div class="text-xs text-content-muted bg-surface-tertiary rounded-xl px-3 py-2 cursor-pointer hover:bg-surface-hover transition-colors" onclick="fillChat('Dismiss this finding')">Dismiss this finding</div>
+      </div>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = msgs.map(m => {
+    const ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+    if (m.role === 'system') {
+      try {
+        const d = JSON.parse(m.content);
+        let icon = '\u{1F504}', label = '';
+        if (d.type === 'retriage_merge') { icon = '\u{1F517}'; label = `Merged with "${d.merged_from}": ${d.reason}`; }
+        else if (d.type === 'retriage_close') { icon = '\u{2705}'; label = `Closed by re-triage: ${d.reason}`; }
+        else if (d.type === 'retriage_severity') { icon = '\u{26A1}'; label = `Severity ${d.old} \u{2192} ${d.new}: ${d.reason}`; }
+        else if (d.type === 'retriage_merged_into') { icon = '\u{2197}\u{FE0F}'; label = `Merged into "${d.into_title}": ${d.reason}`; }
+        else if (d.type === 'recheck') { icon = '\u{1F50D}'; label = `Re-checked: ${(d.changes||[]).join(', ') || 'no changes'}. ${d.reason}`; }
+        return `<div class="bg-surface-tertiary border-l-2 border-accent rounded px-3 py-2 text-xs text-content-muted my-1">
+          <span>${icon}</span> <span>${esc(label)}</span>
+          <span class="float-right text-[10px]">${ts}</span>
+        </div>`;
+      } catch(e) { return ''; }
+    }
+    const isHuman = m.role === 'user';
+    if (isHuman) {
+      return `<div class="flex gap-2 flex-row-reverse">
+        <div class="w-6 h-6 rounded-full bg-accent/14 text-accent text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">You</div>
+        <div class="max-w-[85%]">
+          <div class="bg-accent/10 text-content-primary text-sm px-3 py-2 rounded-[2px_14px_14px_14px] break-words border border-accent/10">${fmtMsg(m.content)}</div>
+          ${ts ? `<div class="text-[10px] text-content-faint font-mono mt-0.5 text-right pr-3">${ts}</div>` : ''}
+        </div>
+      </div>`;
+    } else {
+      return `<div class="flex gap-2">
+        <div class="w-6 h-6 rounded-full bg-surface-tertiary border border-border text-content-muted text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">AI</div>
+        <div class="max-w-[90%]">
+          <div class="bg-surface-primary border border-border text-content-secondary text-sm px-3 py-2 rounded-[14px_14px_14px_2px] break-words leading-relaxed">${fmtMsg(m.content)}</div>
+          ${ts ? `<div class="text-[10px] text-content-faint font-mono mt-0.5 pl-3">${ts}</div>` : ''}
+        </div>
+      </div>`;
+    }
+  }).join('');
+
+  // Show proposed run card if one exists
+  const pr = f.proposed_run;
+  if (pr && typeof pr === 'object' && pr.title) {
+    const canRun = !f.run_id && f.status !== 'running' && f.status !== 'done';
+    container.innerHTML += `<div class="mx-2 mt-2 p-3 rounded-lg border border-accent/25 bg-accent/5">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs font-bold text-accent">Proposed Run</span>
+        ${pr.workflow_name ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-accent/14 text-accent font-mono">${esc(pr.workflow_name)}</span>` : ''}
+        ${pr.model ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-tertiary text-content-muted font-mono">${pr.model}</span>` : ''}
+      </div>
+      <div class="text-xs font-semibold text-content-primary mb-1">${esc(pr.title)}</div>
+      <div class="text-xs text-content-secondary leading-relaxed mb-2">${fmtMsg(pr.task_description || '')}</div>
+      ${canRun ? `<div class="mb-2">
+        <div class="text-[10px] text-content-muted mb-1">Parallel runs</div>
+        <div class="flex gap-1">
+          ${[1,2,3,4].map(n => `<button data-n="${n}" onclick="setFocusRunCount(${n})" class="focus-n-btn text-[10px] px-2 py-1 rounded border transition-colors ${n===1 ? 'bg-accent/14 text-accent border-accent/40' : 'bg-surface-tertiary text-content-muted border-border hover:border-content-muted'}">${n}×</button>`).join('')}
+        </div>
+      </div>
+      <button onclick="startRunFromChat('${f.id}')" class="text-xs px-3 py-1.5 rounded-lg bg-accent text-white font-semibold hover:opacity-85 transition-opacity">Run agents</button>` : ''}
+      ${f.run_id ? `<span class="text-xs text-content-muted ml-2">Run in progress</span>` : ''}
+    </div>`;
+  }
+
+  // Scroll to bottom
+  container.scrollTop = container.scrollHeight;
+}
+
+function fillChat(text) {
+  const input = document.getElementById('chat-input');
+  input.value = text;
+  input.focus();
+}
+
+async function sendChat() {
+  const f = currentFinding();
+  if (!f || state.chatSending) return;
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  state.chatSending = true;
+
+  // Optimistic: show user message immediately
+  if (!f.chat_messages) f.chat_messages = [];
+  f.chat_messages.push({role:'user', content:msg, timestamp: new Date().toISOString()});
+  renderChatPanel(f);
+
+  // Show typing indicator
+  const container = document.getElementById('chat-messages');
+  container.innerHTML += `<div id="typing-indicator" class="flex gap-2">
+    <div class="w-6 h-6 rounded-full bg-surface-tertiary border border-border text-content-muted text-[10px] font-bold flex items-center justify-center flex-shrink-0">AI</div>
+    <div class="bg-surface-primary border border-border text-sm px-3 py-2 rounded-[14px_14px_14px_2px] flex gap-1 items-center">
+      <div class="w-1.5 h-1.5 rounded-full bg-content-muted animate-bounce" style="animation-delay:0s"></div>
+      <div class="w-1.5 h-1.5 rounded-full bg-content-muted animate-bounce" style="animation-delay:0.2s"></div>
+      <div class="w-1.5 h-1.5 rounded-full bg-content-muted animate-bounce" style="animation-delay:0.4s"></div>
+    </div>
+  </div>`;
+  container.scrollTop = container.scrollHeight;
+
+  try {
+    const result = await api.post('/clusters/' + f.id + '/chat', {message: msg});
+
+    // Update local finding with response messages
+    if (result.messages) {
+      f.chat_messages = result.messages;
+    }
+
+    // If the AI proposed a run, update the finding
+    if (result.proposed_run && Object.keys(result.proposed_run).length) {
+      f.proposed_run = result.proposed_run;
+    }
+
+    // Re-render
+    renderFindingCard_update(f);
+    renderChatPanel(f);
+  } catch (e) {
+    // Remove typing indicator, show error
+    const el = document.getElementById('typing-indicator');
+    if (el) el.remove();
+    f.chat_messages.push({role:'assistant', content:'Sorry, I encountered an error: ' + e.message, timestamp: new Date().toISOString()});
+    renderChatPanel(f);
+  }
+
+  state.chatSending = false;
+}
+
+// Re-render just the card content without losing scroll position
+function renderFindingCard_update(f) {
+  // Refresh finding data from server in background
+  api.get('/clusters/' + f.id).then(updated => {
+    const idx = state.findings.findIndex(x => x.id === f.id);
+    if (idx >= 0) {
+      // Preserve chat messages from our local state (they're most up-to-date)
+      const localMsgs = state.findings[idx].chat_messages;
+      Object.assign(state.findings[idx], updated);
+      if (localMsgs) state.findings[idx].chat_messages = localMsgs;
+    }
+    document.getElementById('focus-card').innerHTML = renderFindingCard(state.findings[idx] || f);
+  }).catch(() => {});
+}
+
+let _focusRunCount = 1;
+function setFocusRunCount(n) {
+  _focusRunCount = n;
+  document.querySelectorAll('.focus-n-btn').forEach(b => {
+    const bn = parseInt(b.dataset.n);
+    b.className = `focus-n-btn text-[10px] px-2 py-1 rounded border transition-colors ${bn===n ? 'bg-accent/14 text-accent border-accent/40' : 'bg-surface-tertiary text-content-muted border-border hover:border-content-muted'}`;
+  });
+}
+
+async function startRunFromChat(findingId) {
+  const f = state.findings.find(x => x.id === findingId);
+  if (!f) return;
+  const pr = f.proposed_run || {};
+  try {
+    const [wfData, personas] = await Promise.all([api.get('/workflows'), api.get('/personas')]);
+    const workflows = wfData.workflows || wfData || [];
+    let wf = workflows.find(w => w.name === (pr.workflow_name || ''));
+    if (!wf && workflows.length) wf = workflows[0];
+    if (!wf) { alert('No workflows configured'); return; }
+
+    // Build agent configs from workflow stages
+    const stageToRole = {plan:'planner', engineer:'engineer', test:'engineer', review:'reviewer', security:'security', qa:'qa'};
+    const agentConfigs = [];
+    const proposedModel = pr.model || 'sonnet';
+    for (const stage of (wf.stages || [])) {
+      if (stage.name === 'merge') continue;
+      if (stage.name === 'review') {
+        const rev1 = personas.find(p => p.role === 'reviewer');
+        const rev2 = personas.find(p => p.role === 'security');
+        const rev3 = personas.find(p => p.role === 'architect-reviewer');
+        if (rev1) agentConfigs.push({persona_id: rev1.id, stage_name: 'review', model: rev1.default_model || proposedModel});
+        if (rev2) agentConfigs.push({persona_id: rev2.id, stage_name: 'review', model: rev2.default_model || proposedModel});
+        if (rev3) agentConfigs.push({persona_id: rev3.id, stage_name: 'review', model: rev3.default_model || proposedModel});
+      } else {
+        const role = stageToRole[stage.name] || stage.name;
+        const persona = personas.find(p => p.role === role);
+        if (persona) agentConfigs.push({persona_id: persona.id, stage_name: stage.name, model: proposedModel});
+      }
+    }
+
+    const numRuns = _focusRunCount || 1;
+    _focusRunCount = 1;
+
+    if (numRuns > 1) {
+      const ensemble = await api.post('/ensembles', {
+        workflow_id: wf.id,
+        title: pr.title || f.title || 'Fix from finding',
+        task_description: pr.task_description || f.summary || '',
+        agent_configs: agentConfigs,
+        num_runs: numRuns,
+        base_branch: 'main',
+        auto_approve: true,
+      });
+      await api.post('/ensembles/' + ensemble.id + '/start', {});
+      await api.put('/clusters/' + findingId, { status: 'running' });
+      f.status = 'running';
+    } else {
+      const run = await api.post('/runs', {
+        workflow_id: wf.id,
+        title: pr.title || f.title || 'Fix from finding',
+        task_description: pr.task_description || f.summary || '',
+        repo_id: f.repo_id || undefined,
+        auto_approve: true,
+        agent_configs: agentConfigs,
+      });
+      await api.put('/clusters/' + findingId, { status: 'running' });
+      await api.post('/runs/' + run.id + '/start', {});
+      f.status = 'running';
+      f.run_id = run.id;
+    }
+    renderFindingCard_update(f);
+    renderChatPanel(f);
+  } catch(e) {
+    alert('Failed to start run: ' + (e.message || e));
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// Focus Navigation
+// ═══════════════════════════════════════════════════════
+function nextFinding() {
+  const f = currentFinding();
+  if (f) state.reviewedIds.add(f.id);
+
+  for (let i = 0; i < state.focusQueue.length; i++) {
+    const idx = (state.focusIndex + 1 + i) % state.focusQueue.length;
+    if (!state.reviewedIds.has(state.focusQueue[idx])) {
+      state.focusIndex = idx;
+      render();
+      return;
+    }
+  }
+  state.focusIndex = state.focusQueue.length;
+  render();
+}
+
+// ═══════════════════════════════════════════════════════
+// Re-check
+// ═══════════════════════════════════════════════════════
+async function recheckFinding(clusterId) {
+  const btn = document.getElementById('recheck-btn-' + clusterId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+  toast('Re-running check...');
+  try {
+    const res = await fetch(`/api/clusters/${clusterId}/recheck`, {method: 'POST'});
+    const data = await res.json();
+    if (data.error) { toast('Re-check error: ' + data.error); return; }
+    toast('Re-check complete: ' + ((data.changes || []).join(', ') || 'no changes'));
+    await loadFindings();
+  } catch(e) { toast('Re-check failed: ' + e); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Re-run check'; } }
+}
+
+// ═══════════════════════════════════════════════════════
+// All Mode
+// ═══════════════════════════════════════════════════════
+function renderAll() {
+  const container = document.getElementById('all-table');
+  if (!state.findings.length) {
+    container.innerHTML = emptyState('\u{1F50D}', 'No findings yet', 'Run tasks with parallel agents. Disagreement surfaces here.');
+    return;
+  }
+
+  let html = `<div class="border border-border rounded-xl overflow-hidden">`;
+  html += `<div class="grid grid-cols-12 gap-3 px-4 py-2 bg-surface-tertiary text-xs font-medium text-content-muted uppercase tracking-wide border-b border-border">
+    <div class="col-span-1">Status</div>
+    <div class="col-span-5">Title</div>
+    <div class="col-span-2">Severity</div>
+    <div class="col-span-1">Signals</div>
+    <div class="col-span-1">Source</div>
+    <div class="col-span-2 text-right">Updated</div>
+  </div>`;
+
+  for (const f of state.findings) {
+    const sources = [...new Set((f.signals||[]).map(s=>s.source))];
+    const sourceStr = sources.map(s=>SourceIcon(s)).join(' ');
+    const sc = f.signal_count||(f.signals||[]).length;
+    const selected = state.selectedId === f.id;
+
+    html += `<div class="grid grid-cols-12 gap-3 px-4 py-3 items-center border-b border-border last:border-0 hover:bg-surface-hover transition-colors cursor-pointer ${selected?'bg-surface-hover':''}" onclick="openDetail('${f.id}')">
+      <div class="col-span-1">${StatusBadge(f.status)}</div>
+      <div class="col-span-5 text-sm text-content-primary truncate">${esc(f.title||'Untitled')}</div>
+      <div class="col-span-2">${SeverityBadge(f.severity)}</div>
+      <div class="col-span-1 text-sm text-content-muted">${sc}</div>
+      <div class="col-span-1 text-sm">${sourceStr}</div>
+      <div class="col-span-2 text-xs text-content-muted text-right font-mono">${timeAgo(f.updated_at)}</div>
+    </div>`;
+  }
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// Detail Panel (All mode — right side)
+// ═══════════════════════════════════════════════════════
+function openDetail(id) {
+  state.selectedId = id;
+  state.detailTab = 'overview';
+  document.getElementById('detail-panel').classList.remove('hidden');
+  renderDetail();
+  renderAll(); // re-render table to show selected highlight
+}
+
+function closeDetail() {
+  state.selectedId = null;
+  document.getElementById('detail-panel').classList.add('hidden');
+  renderAll();
+}
+
+function setDetailTab(tab) { state.detailTab = tab; renderDetail(); }
+
+function renderDetail() {
+  const f = findById(state.selectedId);
+  if (!f) return;
+
+  document.getElementById('detail-header').innerHTML = `
+    <div class="flex items-center gap-2 flex-1 min-w-0">
+      ${StatusBadge(f.status)}
+      <span class="text-sm font-medium truncate">${esc(f.title||'Untitled')}</span>
+    </div>
+    <button onclick="closeDetail()" class="text-content-muted hover:text-content-secondary transition-colors flex-shrink-0">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+    </button>
+  `;
+
+  const tabs = ['overview','signals','runs','history'];
+  document.getElementById('detail-tabs').innerHTML = tabs.map(t =>
+    Tab(t.charAt(0).toUpperCase()+t.slice(1), state.detailTab===t, `setDetailTab('${t}')`)
+  ).join('');
+
+  const el = document.getElementById('detail-content');
+  if (state.detailTab === 'overview') el.innerHTML = detailOverview(f);
+  else if (state.detailTab === 'signals') el.innerHTML = detailSignals(f);
+  else if (state.detailTab === 'runs') el.innerHTML = detailRuns(f);
+  else if (state.detailTab === 'history') el.innerHTML = detailHistory(f);
+}
+
+function detailOverview(f) {
+  const pr = f.proposed_run||{};
+  const files = f.files_hint||[];
+  let h = `<div class="space-y-4">`;
+  h += `<div class="flex items-center gap-2">${SeverityBadge(f.severity)} <span class="text-xs text-content-muted">${f.signal_count||0} signals</span></div>`;
+  if (f.summary) h += `<div><div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-1">Summary</div><div class="text-sm text-content-secondary leading-relaxed">${renderMd(f.summary)}</div></div>`;
+  if (f.root_cause) h += `<div><div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-1">Root Cause</div><div class="text-sm text-content-secondary leading-relaxed">${renderMd(f.root_cause)}</div></div>`;
+  if (pr.title||pr.task_description) {
+    h += `<div><div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-1">Proposed Fix</div>
+      <div class="bg-accent-subtle border border-accent/10 rounded-lg px-3 py-2">
+        ${pr.title?`<div class="text-sm font-medium mb-1">${esc(pr.title)}</div>`:''}
+        ${pr.task_description?`<div class="text-sm text-content-secondary">${renderMd(pr.task_description)}</div>`:''}
+      </div></div>`;
+  }
+  if (files.length) h += `<div><div class="text-xs font-medium text-content-muted uppercase tracking-wide mb-1">Files</div><div class="flex flex-wrap gap-1">${files.slice(0,10).map(p=>`<span class="text-xs font-mono bg-surface-tertiary text-content-muted px-2 py-1 rounded-sm">${esc(p.split('/').pop())}</span>`).join('')}</div></div>`;
+  h += `</div>`;
+  return h;
+}
+
+function detailSignals(f) {
+  const sigs = f.signals||[];
+  if (!sigs.length) return `<div class="text-sm text-content-muted py-4 text-center">No signals.</div>`;
+  let h = `<div class="space-y-1">`;
+  for (const s of sigs) {
+    h += `<div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-tertiary transition-colors">
+      <span class="text-sm">${SourceIcon(s.source)}</span>
+      <div class="flex-1 min-w-0"><div class="text-sm text-content-primary truncate">${esc(s.title)}</div><div class="text-xs text-content-muted">${esc(s.source_id||s.source)}</div></div>
+      ${SeverityBadge(s.severity)}
+    </div>`;
+  }
+  h += `</div>`;
+  return h;
+}
+
+function detailRuns(f) {
+  if (!f.run_id) {
+    const pr = f.proposed_run||{};
+    if (pr.title) return `<div class="py-4 text-center"><div class="text-sm text-content-muted mb-3">No runs yet.</div><div class="bg-accent-subtle border border-accent/10 rounded-lg px-3 py-2 text-left"><div class="text-xs font-medium text-content-muted mb-1 uppercase tracking-wide">Proposed</div><div class="text-sm font-medium">${esc(pr.title)}</div>${pr.task_description?`<div class="text-sm text-content-secondary mt-1">${renderMd(pr.task_description)}</div>`:''}</div></div>`;
+    return `<div class="text-sm text-content-muted py-4 text-center">No runs linked.</div>`;
+  }
+  return `<div class="text-sm text-content-muted py-4 text-center">Run <span class="font-mono">${f.run_id.substring(0,8)}</span> linked. <a href="/dashboard" class="text-accent hover:underline">View in dashboard</a></div>`;
+}
+
+function detailHistory(f) {
+  const events = [];
+  if (f.created_at) events.push({time:new Date(f.created_at), label:'Finding created'});
+  for (const s of (f.signals||[])) {
+    if (s.created_at) events.push({time:new Date(s.created_at), label:'Signal: '+s.title, sub:s.source});
+  }
+  const msgs = f.chat_messages||[];
+  for (const m of msgs.slice(-5)) {
+    if (m.timestamp) events.push({time:new Date(m.timestamp), label:'Chat: '+m.role, sub:(m.content||'').substring(0,60)});
+  }
+  if (f.updated_at && f.updated_at !== f.created_at) events.push({time:new Date(f.updated_at), label:'Finding updated'});
+  events.sort((a,b) => b.time - a.time);
+  if (!events.length) return `<div class="text-sm text-content-muted py-4 text-center">No history.</div>`;
+
+  let h = `<div class="relative pl-4 space-y-4"><div class="absolute left-1.5 top-1 bottom-1 w-px bg-border"></div>`;
+  for (const e of events) {
+    const recent = (Date.now()-e.time)<3600000;
+    h += `<div class="relative">
+      <div class="absolute -left-4 top-1 w-2 h-2 rounded-full border ${recent?'border-accent bg-accent':'border-content-faint bg-surface-secondary'}"></div>
+      <div class="text-xs font-mono text-content-muted">${timeAgo(e.time.toISOString())}</div>
+      <div class="text-sm text-content-secondary">${esc(e.label)}</div>
+      ${e.sub?`<div class="text-xs text-content-muted truncate">${esc(e.sub)}</div>`:''}
+    </div>`;
+  }
+  h += `</div>`;
+  return h;
+}
+
+// ═══════════════════════════════════════════════════════
+// Keyboard Shortcuts
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+  if (e.key==='Escape') { if (state.selectedId) closeDetail(); }
+  if (state.mode==='focus') {
+    if (e.key==='ArrowRight'||e.key==='n') nextFinding();
+  }
+  if (e.key==='f') setMode(state.mode==='focus'?'all':'focus');
+});
+
+// ═══════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════
+(async function init() {
+  await loadFindings();
+  setInterval(async () => {
+    const data = await api.get('/clusters?limit=200&sort=severity').catch(()=>null);
+    if (!data) return;
+    // Merge new data without clobbering active chat messages
+    const currentId = currentFinding()?.id;
+    for (const newF of (data.clusters||[])) {
+      const idx = state.findings.findIndex(f => f.id === newF.id);
+      if (idx >= 0) {
+        const local = state.findings[idx];
+        // Keep local chat_messages if we have an active conversation
+        if (local.id === currentId && (local.chat_messages||[]).length > (newF.chat_messages||[]).length) {
+          newF.chat_messages = local.chat_messages;
+        }
+        state.findings[idx] = newF;
+      } else {
+        state.findings.push(newF);
+      }
+    }
+    state.total = data.total || 0;
+    if (state.mode === 'all') renderAll();
+    renderHeaderProgress();
+  }, 15000);
+})();
+</script>
+</body>
+</html>

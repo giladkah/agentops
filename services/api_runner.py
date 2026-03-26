@@ -385,6 +385,7 @@ class APIAgentRunner:
         model: str = "sonnet",
         on_complete: Optional[Callable] = None,
         app=None,
+        agent_role: str = None,
     ) -> bool:
         """
         Launch an API-based agent in a background thread.
@@ -404,6 +405,7 @@ class APIAgentRunner:
                 on_complete=on_complete,
                 app=app,
                 cancel_event=cancel_event,
+                agent_role=agent_role,
             )
 
         thread = threading.Thread(target=_run, daemon=True)
@@ -420,6 +422,7 @@ class APIAgentRunner:
         on_complete: Optional[Callable],
         app,
         cancel_event: threading.Event,
+        agent_role: str = None,
     ):
         """The main agentic loop — send messages, handle tool calls, repeat."""
         full_model = resolve_model(model)
@@ -513,6 +516,9 @@ class APIAgentRunner:
 
                         print(f"   🔧 Tool: {tool_name}({json.dumps(tool_input)[:100]}...)")
                         result = self._execute_tool(tool_name, tool_input, worktree_path)
+                        # Compress tool output for token savings
+                        from services.token_optimizer import compress_tool_output
+                        result = compress_tool_output(tool_name, tool_input, result, agent_role)
 
                         # Log tool actions for output
                         if tool_name in ("write_file", "edit_file"):
@@ -531,6 +537,11 @@ class APIAgentRunner:
                         print(f"   📤 Result: {result[:150]}{'...' if len(result) > 150 else ''}")
 
                 messages.append({"role": "user", "content": tool_results})
+
+                # Compress old messages every 3 turns after turn 4
+                if turn_count > 4 and turn_count % 3 == 0:
+                    from services.token_optimizer import summarize_old_messages
+                    messages = summarize_old_messages(messages, keep_last_n=3)
 
             else:
                 # Hit max turns

@@ -402,9 +402,68 @@ def _migrate_signal_cluster_id():
         print("  ✅ Added cluster_id column to signals table")
 
 
+def _migrate_agent_handoff_json():
+    """Add handoff_json column to agents table if missing (for existing databases)."""
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(db.engine)
+    columns = [c["name"] for c in inspector.get_columns("agents")]
+    if "handoff_json" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN handoff_json TEXT DEFAULT '{}'"))
+        print("  Added handoff_json column to agents table")
+
+
+def _update_persona_prompts():
+    """Update existing persona prompts with handoff output instructions."""
+    handoff_additions = {
+        "planner": """
+
+When you finish, output your plan in this EXACT format:
+HANDOFF_JSON_START
+{"type":"plan","summary":"what needs to be done","files_to_change":[{"path":"...","why":"...","change_type":"modify"}],"files_to_read":["..."],"success_criteria":["..."],"risks":["..."]}
+HANDOFF_JSON_END""",
+        "engineer": """
+
+When you finish, output your results in this EXACT format:
+HANDOFF_JSON_START
+{"type":"implementation","summary":"what was done","files_changed":[{"file":"...","change":"...","functions_modified":["..."]}],"tests_status":"passed|failed|none","confidence":"high|medium|low","reviewer_focus_areas":["specific thing to check"]}
+HANDOFF_JSON_END""",
+        "reviewer": """
+
+Also output your verdict:
+HANDOFF_JSON_START
+{"type":"review","verdict":"approve|revise|block","issues_summary":"N critical, M minor","focus_areas":["what next round should check"]}
+HANDOFF_JSON_END""",
+        "security": """
+
+Also output your verdict:
+HANDOFF_JSON_START
+{"type":"review","verdict":"approve|revise|block","issues_summary":"N critical, M minor","focus_areas":["what next round should check"]}
+HANDOFF_JSON_END""",
+        "architect-reviewer": """
+
+Also output your verdict:
+HANDOFF_JSON_START
+{"type":"review","verdict":"approve|revise|block","issues_summary":"N critical, M minor","focus_areas":["what next round should check"]}
+HANDOFF_JSON_END""",
+    }
+
+    for role, addition in handoff_additions.items():
+        persona = Persona.query.filter_by(role=role).first()
+        if not persona:
+            continue
+        if "HANDOFF_JSON_START" in (persona.prompt_template or ""):
+            continue  # Already has handoff instructions
+        persona.prompt_template = persona.prompt_template + addition
+        db.session.commit()
+        print(f"  Updated {persona.name} persona with handoff instructions")
+
+
 def seed_all():
     seed_personas()
     seed_workflows()
     _upsert_test_runner()
     _upsert_test_stage()
     _migrate_signal_cluster_id()
+    _migrate_agent_handoff_json()
+    _update_persona_prompts()

@@ -180,9 +180,15 @@ class SentryPoller:
             if source_id in self._seen_ids:
                 continue
 
-            title = issue.get("title", "Sentry issue")
+            raw_title = issue.get("title", "")
             culprit = issue.get("culprit", "")
             metadata = issue.get("metadata", {})
+
+            # Fallback chain for unhelpful titles like "<unknown>"
+            if not raw_title or raw_title == "<unknown>":
+                title = metadata.get("type") or metadata.get("value", "") or culprit or issue.get("shortId") or "Sentry issue"
+            else:
+                title = raw_title
             level = issue.get("level", "error")
             count = issue.get("count", "0")
             user_count = issue.get("userCount", 0)

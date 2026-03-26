@@ -54,6 +54,10 @@ def create_app(repo_path: str = None, api_key: str = None):
     def dashboard():
         return render_template("dashboard.html")
 
+    @app.route("/focus")
+    def focus():
+        return render_template("focus.html")
+
     return app
 
 

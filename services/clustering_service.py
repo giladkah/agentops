@@ -432,6 +432,352 @@ Return ONLY valid JSON, no markdown fences, no explanation:
         except Exception as e:
             return {"error": str(e)}
 
+    _VALID_SEVERITIES = {"critical", "high", "medium", "low"}
+
+    # ── Re-triage / Re-check ──
+
+    _RETRIAGE_BATCH_SIZE = 40  # max findings per AI call
+
+    def retriage_all(self) -> dict:
+        """Review ALL open findings in batched AI passes — merge duplicates, close fixed, re-rank severity."""
+        if not self.client:
+            return {"error": "No Anthropic API key configured"}
+
+        clusters = SignalCluster.query.filter(
+            SignalCluster.status.in_(("open", "ready", "triaging"))
+        ).all()
+
+        if not clusters:
+            return {"actions": [], "reviewed": 0, "message": "No open findings to review"}
+
+        # Build compact descriptions — use short IDs for token efficiency
+        id_map = {}  # short_id -> full_id
+        findings = []
+        for c in clusters:
+            # Use 8-char prefix; extend on collision
+            short_id = c.id[:8]
+            prefix_len = 8
+            while short_id in id_map and id_map[short_id] != c.id:
+                prefix_len += 4
+                short_id = c.id[:prefix_len]
+            id_map[short_id] = c.id
+            signals_summary = []
+            for sig in c.signals[:3]:
+                signals_summary.append(f"{sig.source}: {sig.title}")
+            findings.append({
+                "id": short_id,
+                "title": c.title,
+                "summary": (c.summary or "")[:150],
+                "severity": c.severity,
+                "root_cause": (c.root_cause or "")[:120],
+                "signals": c.signal_count(),
+                "files": c.get_files_hint()[:5],
+                "src": signals_summary,
+            })
+
+        print(f"🔄 Re-triage: reviewing {len(findings)} findings in batches of {self._RETRIAGE_BATCH_SIZE}...")
+
+        # Process in batches
+        all_applied = []
+        all_kept = []
+        all_skipped = []
+        all_summaries = []
+        total_reviewed = len(findings)
+
+        for batch_start in range(0, len(findings), self._RETRIAGE_BATCH_SIZE):
+            batch = findings[batch_start:batch_start + self._RETRIAGE_BATCH_SIZE]
+            batch_num = batch_start // self._RETRIAGE_BATCH_SIZE + 1
+            total_batches = (len(findings) + self._RETRIAGE_BATCH_SIZE - 1) // self._RETRIAGE_BATCH_SIZE
+            print(f"  📦 Batch {batch_num}/{total_batches}: {len(batch)} findings")
+
+            result = self._retriage_batch(batch, id_map)
+            if result.get("error"):
+                print(f"  ❌ Batch {batch_num} error: {result['error']}")
+                all_skipped.append({"type": "batch_error", "reason": result["error"], "batch": batch_num})
+                continue
+
+            all_applied.extend(result.get("applied", []))
+            all_kept.extend(result.get("kept", []))
+            all_skipped.extend(result.get("skipped", []))
+            if result.get("summary"):
+                all_summaries.append(result["summary"])
+
+        db.session.commit()
+        summary = " | ".join(all_summaries) if all_summaries else ""
+        print(f"🔄 Re-triage complete: {len(all_applied)} actions applied, {len(all_kept)} kept, {len(all_skipped)} skipped")
+        return {
+            "actions": all_applied,
+            "kept": all_kept,
+            "skipped": all_skipped,
+            "summary": summary,
+            "reviewed": total_reviewed,
+        }
+
+    def _retriage_batch(self, batch: list, id_map: dict) -> dict:
+        """Process one batch of findings through the AI."""
+        # Pre-compute overlap hints within this batch
+        overlap_hints = []
+        for i, a in enumerate(batch):
+            a_files = set(a.get("files", []))
+            a_words = set(a.get("title", "").lower().split())
+            for j in range(i + 1, len(batch)):
+                b = batch[j]
+                b_files = set(b.get("files", []))
+                b_words = set(b.get("title", "").lower().split())
+                shared_files = a_files & b_files
+                shared_words = a_words & b_words - {"the", "a", "an", "in", "to", "of", "and", "or", "is", "for", "with"}
+                if shared_files or len(shared_words) >= 3:
+                    hint = f"  - [{a['id']}] \"{a['title']}\" <-> [{b['id']}] \"{b['title']}\""
+                    if shared_files:
+                        hint += f" (shared files: {', '.join(list(shared_files)[:3])})"
+                    overlap_hints.append(hint)
+
+        overlap_section = ""
+        if overlap_hints:
+            overlap_section = f"\nDETECTED OVERLAPS — likely duplicates:\n" + "\n".join(overlap_hints[:20]) + "\n"
+
+        prompt = f"""Review these {len(batch)} open findings. Be AGGRESSIVE about cleanup.
+
+FINDINGS:
+{json.dumps(batch)}
+{overlap_section}
+RULES:
+1. MERGE findings about the same problem (same files, same root cause, similar titles). Use the best one as survivor.
+2. CLOSE findings that are trivial, cosmetic-only, or low-value noise.
+3. SEVERITY: downgrade style/cosmetic to "low", upgrade security/data-loss to "high"/"critical".
+4. ONLY return actions that CHANGE something. Do NOT return "keep" — omitted findings are kept automatically.
+
+Return ONLY valid JSON, no markdown wrapping:
+{{"actions":[{{"type":"merge","into":"<survivor_short_id>","ids":["<id1>","<id2>"],"reason":"short reason"}},{{"type":"close","ids":["<id>"],"reason":"short reason"}},{{"type":"severity","ids":["<id>"],"sev":"low|medium|high|critical","reason":"short reason"}}],"summary":"1-sentence assessment"}}
+
+Keep reasons under 15 words. Use the 8-char IDs as shown."""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+
+            # Check for truncation
+            if response.stop_reason == "max_tokens":
+                print(f"    ⚠️ Response truncated — trying to salvage partial JSON")
+                text = self._salvage_truncated_json(text)
+
+            if text.startswith("```"):
+                lines = text.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                text = "\n".join(lines)
+            result = json.loads(text)
+        except json.JSONDecodeError as e:
+            print(f"    ❌ JSON parse error: {e}")
+            # Try harder to salvage
+            try:
+                text = self._salvage_truncated_json(text)
+                result = json.loads(text)
+            except Exception:
+                return {"error": f"AI returned invalid JSON: {str(e)[:100]}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+        raw_actions = result.get("actions", [])
+        print(f"    AI returned {len(raw_actions)} change actions")
+
+        # Apply actions — resolve short IDs to full IDs
+        applied = []
+        skipped = []
+        kept = []
+        for action in raw_actions:
+            a_type = action.get("type")
+            # Resolve short IDs to full IDs
+            raw_ids = action.get("ids", [])
+            ids = [id_map.get(sid, sid) for sid in raw_ids]
+            reason = action.get("reason", "")
+
+            if a_type == "keep":
+                kept.append({"ids": raw_ids, "reason": reason})
+                continue
+
+            if a_type == "merge":
+                raw_into = action.get("into", raw_ids[0] if raw_ids else "")
+                survivor_id = id_map.get(raw_into, raw_into)
+                all_ids = list(ids)
+                if survivor_id not in all_ids:
+                    all_ids.append(survivor_id)
+                if len(all_ids) < 2:
+                    skipped.append({"type": "merge", "reason": "insufficient IDs"})
+                    continue
+
+                survivor = SignalCluster.query.get(survivor_id)
+                if not survivor:
+                    skipped.append({"type": "merge", "reason": f"survivor {raw_into} not found"})
+                    continue
+                merged_ids = []
+                for mid in all_ids:
+                    if mid == survivor_id:
+                        continue
+                    merge_c = SignalCluster.query.get(mid)
+                    if merge_c:
+                        for sig in merge_c.signals:
+                            sig.cluster_id = survivor.id
+                        survivor.add_chat_message("system", json.dumps({
+                            "type": "retriage_merge",
+                            "merged_from": merge_c.title,
+                            "merged_id": mid,
+                            "reason": reason,
+                        }))
+                        merge_c.add_chat_message("system", json.dumps({
+                            "type": "retriage_merged_into",
+                            "into_id": survivor_id,
+                            "into_title": survivor.title,
+                            "reason": reason,
+                        }))
+                        merge_c.status = "done"
+                        merged_ids.append(mid)
+                if merged_ids:
+                    db.session.flush()
+                    applied.append({"type": "merge", "into": survivor_id, "merged": merged_ids, "reason": reason})
+                    print(f"    ✅ Merged {len(merged_ids)} into {raw_into}")
+
+            elif a_type == "close":
+                closed_ids = []
+                for cid in ids:
+                    c = SignalCluster.query.get(cid)
+                    if c and c.status not in ("done", "running"):
+                        c.status = "done"
+                        c.add_chat_message("system", json.dumps({
+                            "type": "retriage_close",
+                            "reason": reason,
+                        }))
+                        closed_ids.append(cid)
+                if closed_ids:
+                    applied.append({"type": "close", "ids": closed_ids, "reason": reason})
+                    print(f"    ✅ Closed {len(closed_ids)}: {reason[:60]}")
+
+            elif a_type in ("update_severity", "severity"):
+                new_sev = action.get("severity", action.get("sev", "medium")).lower()
+                if new_sev not in self._VALID_SEVERITIES:
+                    new_sev = "medium"
+                updated_ids = []
+                for cid in ids:
+                    c = SignalCluster.query.get(cid)
+                    if c and c.severity != new_sev:
+                        old_sev = c.severity
+                        c.severity = new_sev
+                        c.add_chat_message("system", json.dumps({
+                            "type": "retriage_severity",
+                            "old": old_sev,
+                            "new": new_sev,
+                            "reason": reason,
+                        }))
+                        updated_ids.append(cid)
+                if updated_ids:
+                    applied.append({"type": "update_severity", "ids": updated_ids, "severity": new_sev, "reason": reason})
+                    print(f"    ✅ Severity → {new_sev} for {len(updated_ids)}")
+
+        return {"applied": applied, "kept": kept, "skipped": skipped, "summary": result.get("summary", "")}
+
+    @staticmethod
+    def _salvage_truncated_json(text: str) -> str:
+        """Try to fix truncated JSON by closing open structures."""
+        # Find the last complete action object (ends with })
+        last_brace = text.rfind("}")
+        if last_brace == -1:
+            return text
+        # Trim to last complete object, close the array and outer object
+        trimmed = text[:last_brace + 1]
+        # Count open brackets/braces to figure out what needs closing
+        opens = trimmed.count("[") - trimmed.count("]")
+        braces = trimmed.count("{") - trimmed.count("}")
+        trimmed += "]" * max(opens, 0)
+        trimmed += "}" * max(braces, 0)
+        return trimmed
+
+    def recheck_cluster(self, cluster_id: str) -> dict:
+        """Re-investigate a single finding — check if it's still relevant, update severity/summary."""
+        if not self.client:
+            return {"error": "No Anthropic API key configured"}
+
+        cluster = SignalCluster.query.get(cluster_id)
+        if not cluster:
+            return {"error": "Finding not found"}
+
+        signals_ctx = []
+        for sig in cluster.signals:
+            signals_ctx.append({
+                "source": sig.source,
+                "title": sig.title,
+                "summary": (sig.summary or "")[:300],
+                "severity": sig.severity,
+                "files": sig.get_files_hint()[:5],
+            })
+
+        recent_msgs = cluster.get_chat_messages()[-5:]
+        chat_ctx = [{"role": m["role"], "content": m["content"][:300]} for m in recent_msgs if m["role"] in ("user", "assistant")]
+
+        prompt = f"""Re-check this finding. Is it still relevant? Should severity change? Is the root cause accurate?
+
+FINDING:
+Title: {cluster.title}
+Summary: {cluster.summary or 'N/A'}
+Severity: {cluster.severity}
+Root cause: {cluster.root_cause or 'N/A'}
+Status: {cluster.status}
+
+MEMBER SIGNALS ({len(signals_ctx)}):
+{json.dumps(signals_ctx)}
+
+RECENT CHAT CONTEXT:
+{json.dumps(chat_ctx) if chat_ctx else 'None'}
+
+Return ONLY valid JSON:
+{{"still_relevant":true,"severity":"critical|high|medium|low","summary":"updated 1-2 sentence summary","root_cause":"updated root cause","reason":"why you made these changes"}}"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+            if text.startswith("```"):
+                lines = text.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                text = "\n".join(lines)
+            result = json.loads(text)
+        except Exception as e:
+            return {"error": str(e)}
+
+        changes = []
+        old_sev = cluster.severity
+        new_sev = (result.get("severity") or "").lower()
+        if new_sev and new_sev in self._VALID_SEVERITIES and new_sev != old_sev:
+            cluster.severity = new_sev
+            changes.append(f"severity: {old_sev} → {new_sev}")
+
+        if result.get("summary"):
+            cluster.summary = result["summary"]
+            changes.append("summary updated")
+
+        if result.get("root_cause"):
+            cluster.root_cause = result["root_cause"]
+            changes.append("root cause updated")
+
+        if not result.get("still_relevant", True):
+            cluster.status = "done"
+            changes.append("closed as no longer relevant")
+
+        cluster.add_chat_message("system", json.dumps({
+            "type": "recheck",
+            "changes": changes,
+            "reason": result.get("reason", ""),
+            "still_relevant": result.get("still_relevant", True),
+        }))
+
+        db.session.commit()
+        return {"cluster": cluster.to_dict(), "changes": changes, "reason": result.get("reason", "")}
+
     # ── Helpers ──
 
     def _record_error(self, msg: str):

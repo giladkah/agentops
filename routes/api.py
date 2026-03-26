@@ -569,6 +569,32 @@ def approve_ensemble(eid):
     return jsonify({"error": "Cannot approve in current state"}), 400
 
 
+@api.route("/ensembles/<eid>/retry-consensus", methods=["POST"])
+def retry_ensemble_consensus(eid):
+    """Manually trigger consensus when the poller has died but all runs are done."""
+    ensemble = EnsembleRun.query.get_or_404(eid)
+    if ensemble.status in ("comparing", "running"):
+        # Force to comparing so approve_ensemble can handle it
+        ensemble.status = "comparing"
+        db.session.commit()
+        # Build comparison if missing
+        if not ensemble.comparison_data or ensemble.comparison_data == "{}":
+            ensemble_orchestrator._build_comparison(ensemble)
+        success = ensemble_orchestrator.approve_ensemble(eid)
+        if success:
+            return jsonify({"status": "consensus_started"})
+        return jsonify({"error": "Failed to start consensus"}), 400
+    return jsonify({"error": f"Cannot retry in status: {ensemble.status}"}), 400
+
+
+@api.route("/ensembles/<eid>/cancel", methods=["POST"])
+def cancel_ensemble(eid):
+    success = ensemble_orchestrator.cancel_ensemble(eid)
+    if success:
+        return jsonify({"status": "cancelled"})
+    return jsonify({"error": "Cannot cancel"}), 400
+
+
 @api.route("/ensembles/<eid>/pr", methods=["POST"])
 def ensemble_create_pr(eid):
     ensemble = EnsembleRun.query.get_or_404(eid)
@@ -650,9 +676,16 @@ def sentry_webhook():
     issue = payload.get("data", {}).get("issue", payload.get("issue", payload))
     event = payload.get("data", {}).get("event", {})
 
-    title = issue.get("title", "Sentry alert")
+    raw_title = issue.get("title", "")
     culprit = issue.get("culprit", "")
-    message = event.get("message", issue.get("metadata", {}).get("value", ""))
+    metadata = issue.get("metadata", {})
+    message = event.get("message", metadata.get("value", ""))
+
+    # Fallback for unhelpful titles like "<unknown>"
+    if not raw_title or raw_title == "<unknown>":
+        title = metadata.get("type") or message or culprit or "Sentry alert"
+    else:
+        title = raw_title
 
     # Extract file paths from stack trace
     files = []
@@ -1090,6 +1123,21 @@ def github_remove_repo():
     return jsonify(github_poller.get_status())
 
 
+@api.route("/github/pause", methods=["POST"])
+def github_pause():
+    """Pause or resume GitHub polling. Keeps config intact."""
+    if not github_poller:
+        return jsonify({"error": "GitHub not configured"}), 400
+    if github_poller._running:
+        github_poller.stop()
+    else:
+        if github_poller.repos:
+            github_poller.start()
+        else:
+            return jsonify({"error": "No repos configured"}), 400
+    return jsonify(github_poller.get_status())
+
+
 @api.route("/github/poll", methods=["POST"])
 def github_poll_now():
     """Manually trigger a poll cycle."""
@@ -1337,6 +1385,21 @@ def shortcut_disconnect():
     return jsonify(shortcut_poller.get_status())
 
 
+@api.route("/shortcut/pause", methods=["POST"])
+def shortcut_pause():
+    """Pause or resume Shortcut polling. Keeps config intact."""
+    if not shortcut_poller:
+        return jsonify({"error": "Shortcut not configured"}), 400
+    if shortcut_poller._running:
+        shortcut_poller.stop()
+    else:
+        if shortcut_poller.workspaces:
+            shortcut_poller.start()
+        else:
+            return jsonify({"error": "No workspaces configured"}), 400
+    return jsonify(shortcut_poller.get_status())
+
+
 @api.route("/shortcut/query", methods=["POST"])
 def shortcut_update_query():
     """Update the search query for a workspace. Body: {"name": "...", "query": "..."}"""
@@ -1529,6 +1592,21 @@ def sentry_list_projects(org):
         return jsonify({"error": str(e)}), 400
 
 
+@api.route("/sentry/pause", methods=["POST"])
+def sentry_pause():
+    """Pause or resume Sentry polling. Keeps config intact."""
+    if not sentry_poller:
+        return jsonify({"error": "Sentry not configured"}), 400
+    if sentry_poller._running:
+        sentry_poller.stop()
+    else:
+        if sentry_poller.projects:
+            sentry_poller.start()
+        else:
+            return jsonify({"error": "No projects configured"}), 400
+    return jsonify(sentry_poller.get_status())
+
+
 @api.route("/sentry/poll", methods=["POST"])
 def sentry_poll_now():
     """Trigger an immediate poll."""
@@ -1594,7 +1672,9 @@ def list_clusters():
     from sqlalchemy import case as sql_case
     query = SignalCluster.query
     status = request.args.get("status")
-    if status:
+    if status == "active":
+        query = query.filter(SignalCluster.status.notin_(("done", "failed")))
+    elif status:
         query = query.filter_by(status=status)
     severity = request.args.get("severity")
     if severity:
@@ -1678,6 +1758,18 @@ def create_cluster():
     db.session.commit()
 
     return jsonify(cluster.to_dict()), 201
+
+
+@api.route("/clusters/<cluster_id>", methods=["PUT"])
+def update_cluster(cluster_id):
+    """Update cluster fields (title, severity, status, root_cause, summary)."""
+    cluster = SignalCluster.query.get_or_404(cluster_id)
+    data = request.json or {}
+    for field in ("title", "severity", "status", "root_cause", "summary"):
+        if field in data:
+            setattr(cluster, field, data[field])
+    db.session.commit()
+    return jsonify(cluster.to_dict())
 
 
 @api.route("/clusters/<cluster_id>", methods=["DELETE"])
@@ -1796,6 +1888,28 @@ def retry_cluster(cluster_id):
     cluster.run_id = None
     db.session.commit()
     return jsonify(cluster.to_dict())
+
+
+@api.route("/clusters/retriage-all", methods=["POST"])
+def retriage_all_clusters():
+    """Re-triage all open findings in one AI pass."""
+    if not clustering_service:
+        return jsonify({"error": "Clustering service not initialized"}), 500
+    result = clustering_service.retriage_all()
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@api.route("/clusters/<cluster_id>/recheck", methods=["POST"])
+def recheck_cluster(cluster_id):
+    """Re-investigate a single finding."""
+    if not clustering_service:
+        return jsonify({"error": "Clustering service not initialized"}), 500
+    result = clustering_service.recheck_cluster(cluster_id)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
 
 
 @api.route("/clusters/run-now", methods=["POST"])

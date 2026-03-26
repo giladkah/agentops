@@ -347,23 +347,37 @@ The project is at: {self.repo_path}
 YOUR JOB:
 1. READ the full ticket context below carefully — understand what is being asked BEFORE touching the codebase
 2. Investigate using your tools — read relevant files, check git history, understand the codebase context
-3. Share what you found with clear, specific details (file paths, line numbers, recent changes)
+3. Share what you found as a STRUCTURED REPORT (see format below)
 4. Ask targeted questions about things you can't determine from the code alone
 5. ONLY propose a run when you have a clear, specific implementation plan
 
 CRITICAL RULES:
 - If the user explicitly asks to "create a run", "prepare a run", "start a run", or "make a run" — propose one immediately based on what you know. Do not investigate further.
+- IMPORTANT: You MUST call the propose_run tool to create a run. Writing "Run created" or describing a run in text does NOT create one. The user can only see and start a run if you actually call propose_run.
 - Investigate first, but BE DECISIVE. Once you understand the problem and know which files are involved, propose a run. Do not keep investigating endlessly.
 - When you DO propose a run, the task_description must be extremely specific with exact file paths, function names, and what to change.
 - Always set model to 'haiku' unless the user specifically requests a different model.
 - ALWAYS end your response with either: (a) a concrete run proposal via the propose_run tool, or (b) a clear summary of findings + specific questions if you need more info.
 - Never leave the user hanging with just investigation notes and no conclusion.
 
+OUTPUT FORMAT — STRICTLY FOLLOW THIS:
+Do NOT output raw reasoning or stream-of-consciousness. Never write "Let me check...", "Now I will...", "Interesting!".
+Transform your investigation into a clean, structured report:
+
+**Summary** — 2-3 sentences: what is the issue, why it matters
+**Root Cause** — Clear, direct explanation (3-4 lines max)
+**Key Findings** — Bullet points only, one concrete observation each
+**Evidence** — Specific files, line numbers, logs (short references, not dumps)
+**Recommended Action** — Numbered steps, clear and executable
+**Risks / Notes** — Only if relevant, keep concise
+
+Use markdown formatting: **bold** for headers, `code` for file paths and functions, bullet points for lists.
+Keep it scannable. No filler language. No repetition. Write like a senior engineer filing a concise report.
+
 INVESTIGATION APPROACH:
-- Start by investigating immediately — don't just describe what you'll do, DO it with tool calls
-- Be specific: mention exact file paths, line numbers, function names
-- Connect dots: if you find related issues or recent changes, mention them
-- When asking questions, offer clickable options (numbered choices) so the human can answer quickly
+- Investigate immediately with tool calls — don't describe what you'll do
+- Be specific: exact file paths, line numbers, function names
+- Connect dots: related issues, recent changes
 - Adapt to the source type:
   * Sentry: focus on stack traces, recent code changes, error frequency
   * Shortcut: focus on acceptance criteria, affected modules, related items
@@ -555,6 +569,21 @@ Keep responses concise but informative. Use code formatting for file paths and c
         personas = [p.to_dict() for p in Persona.query.all()]
         system_prompt = self._build_system_prompt(signal, workflows, personas)
 
+        # Fast path: if user explicitly asks for a run, force propose_run directly
+        last_user_msg = ""
+        for msg in reversed(api_messages):
+            if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                last_user_msg = msg["content"].lower()
+                break
+        _run_phrases = [
+            "create a run", "start a run", "make a run", "prepare a run",
+            "create run", "start run", "run please", "suggest a run",
+            "let's create", "let's start", "let's run", "yes, let",
+            "yes please", "yes, create", "go ahead", "do it",
+        ]
+        if any(p in last_user_msg for p in _run_phrases):
+            return self._force_propose_run_signal(signal, workflows, api_messages)
+
         # Run the agentic loop (tool use)
         proposed_run = None
         all_text_parts = []
@@ -738,6 +767,50 @@ Keep responses concise but informative. Use code formatting for file paths and c
                     except (json.JSONDecodeError, KeyError):
                         pass
 
+            # Force tool call if user asked for a run but AI only generated text
+            if not proposed_run:
+                last_user_msg = ""
+                for msg in reversed(api_messages):
+                    if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                        last_user_msg = msg["content"].lower()
+                        break
+                user_wants_run = any(p in last_user_msg for p in [
+                    "create a run", "start a run", "make a run", "prepare a run",
+                    "create run", "start run", "run please", "let's run",
+                    "let's create", "let's start", "yes, let",
+                ])
+                ai_described_run = full_response and any(p in full_response.lower() for p in [
+                    "run created", "run is ready", "proposed run", "here's the run",
+                    "run has been", "run queued", "ready for you to approve",
+                ])
+                if user_wants_run or ai_described_run:
+                    try:
+                        files_hint = signal.get_files_hint()[:10]
+                        wf_names = ", ".join(w["name"] for w in workflows)
+                        force_resp = self.client.messages.create(
+                            model="claude-haiku-4-5-20251001",
+                            max_tokens=1024,
+                            system=f"You are creating a run for a signal. Title: {signal.title}. Summary: {signal.summary or 'N/A'}. Files: {json.dumps(files_hint)}. Available workflows: {wf_names}.",
+                            tools=[t for t in CHAT_TOOLS if t["name"] == "propose_run"],
+                            tool_choice={"type": "tool", "name": "propose_run"},
+                            messages=[{"role": "user", "content": "Call propose_run now. Use Bug Fix for bugs, New Feature for features. Set model to haiku. Be specific with file paths in task_description."}],
+                        )
+                        for block in force_resp.content:
+                            if block.type == "tool_use" and block.name == "propose_run":
+                                proposed_run = block.input
+                                wf_name = proposed_run.get("workflow_name", "")
+                                matched_wf = next(
+                                    (w for w in workflows if w["name"].lower() == wf_name.lower()),
+                                    workflows[0] if workflows else None,
+                                )
+                                if matched_wf:
+                                    proposed_run["workflow_id"] = matched_wf["id"]
+                                    proposed_run["workflow"] = matched_wf
+                                signal.proposed_run = json.dumps(proposed_run)
+                                break
+                    except Exception as e:
+                        print(f"⚠️ Force propose_run failed: {e}")
+
             if full_response.strip():
                 signal.add_chat_message("assistant", full_response)
 
@@ -801,22 +874,104 @@ SIGNAL:
         prompt += f"""
 YOUR TASK:
 1. Investigate the codebase — read the relevant files, check git history, understand the context
-2. Share specific findings (file paths, line numbers, recent changes)
+2. Present findings as a STRUCTURED REPORT (see format below)
 3. Ask targeted questions about anything you can't determine from code alone
 4. If you have enough context to recommend a fix, end your response with a JSON proposal block
 
 {f'The user says: {user_message}' if user_message else 'This is the initial triage — investigate and report what you find.'}
+
+OUTPUT FORMAT — STRICTLY FOLLOW THIS:
+Do NOT output raw reasoning or stream-of-consciousness. Never write "Let me check...", "Now I will...", "Interesting!".
+Transform your investigation into a clean, structured report:
+
+**Summary** — 2-3 sentences: what is the issue, why it matters
+**Root Cause** — Clear, direct explanation (3-4 lines max)
+**Key Findings** — Bullet points only, one concrete observation each
+**Evidence** — Specific files, line numbers, logs (short references, not dumps)
+**Recommended Action** — Numbered steps, clear and executable
+
+Use markdown formatting: **bold** for headers, `code` for file paths and functions, bullet points for lists.
+Keep it scannable. No filler language. No repetition.
 
 IMPORTANT: If you want to propose a run, include a JSON block at the END of your response in exactly this format:
 ```json
 {{"PROPOSED_RUN": true, "workflow_name": "Bug Fix", "title": "Short title", "task_description": "Detailed description for the engineer", "auto_approve": true, "model": "haiku"}}
 ```
 Available workflows: {wf_list}
-ALWAYS use "model": "haiku" unless the user specifically asks for a different model.
-
-Be specific, be concise, reference exact file paths and line numbers."""
+ALWAYS use "model": "haiku" unless the user specifically asks for a different model."""
 
         return prompt
+
+    def _force_propose_run_signal(self, signal, workflows, api_messages) -> dict:
+        """Bypass investigation and force a propose_run tool call for a signal."""
+        try:
+            files_hint = signal.get_files_hint()[:10]
+            wf_names = ", ".join(w["name"] for w in workflows)
+
+            prior_analysis = ""
+            for msg in reversed(api_messages):
+                if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
+                    prior_analysis = msg["content"][:2000]
+                    break
+
+            force_system = f"""Create a run proposal for this signal.
+
+SIGNAL: {signal.title}
+SUMMARY: {signal.summary or 'See details'}
+SEVERITY: {signal.severity}
+SOURCE: {signal.source}
+FILES: {json.dumps(files_hint)}
+AVAILABLE WORKFLOWS: {wf_names}
+
+{f'PRIOR ANALYSIS: {prior_analysis}' if prior_analysis else ''}
+
+Rules:
+- Match workflow: bugs→Bug Fix, features→New Feature, refactoring→Code Cleanup, security→Security Audit, tests→Test Coverage
+- Set model to "haiku"
+- task_description must include specific file paths and what to change"""
+
+            force_resp = self.client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                system=force_system,
+                tools=[t for t in CHAT_TOOLS if t["name"] == "propose_run"],
+                tool_choice={"type": "tool", "name": "propose_run"},
+                messages=[{"role": "user", "content": "Call propose_run now."}],
+            )
+
+            proposed_run = None
+            for block in force_resp.content:
+                if block.type == "tool_use" and block.name == "propose_run":
+                    proposed_run = block.input
+                    wf_name = proposed_run.get("workflow_name", "")
+                    matched_wf = next(
+                        (w for w in workflows if w["name"].lower() == wf_name.lower()),
+                        workflows[0] if workflows else None,
+                    )
+                    if matched_wf:
+                        proposed_run["workflow_id"] = matched_wf["id"]
+                        proposed_run["workflow"] = matched_wf
+                    signal.proposed_run = json.dumps(proposed_run)
+                    break
+
+            if proposed_run:
+                summary = f"Proposed a **{proposed_run.get('workflow_name', 'Bug Fix')}** run: {proposed_run.get('title', signal.title)}"
+                signal.add_chat_message("assistant", summary)
+            else:
+                signal.add_chat_message("assistant", "I wasn't able to create a run proposal. Please try describing what you'd like fixed.")
+
+            db.session.commit()
+            return {
+                "messages": signal.get_chat_messages(),
+                "proposed_run": proposed_run,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "messages": signal.get_chat_messages(),
+                "proposed_run": None,
+                "error": f"Failed to create run: {e}",
+            }
 
     def _send_cli(self, signal: Signal, user_message: str) -> dict:
         """CLI mode: use Claude Code subprocess for triage."""
@@ -986,16 +1141,31 @@ The project is at: {self.repo_path}
 YOUR JOB:
 1. READ the full case context below carefully — understand the overall problem across all member signals
 2. Investigate using your tools — read relevant files, check git history, understand the codebase context
-3. Share what you found with clear, specific details (file paths, line numbers, recent changes)
+3. Share what you found as a STRUCTURED REPORT (see format below)
 4. Ask targeted questions about things you can't determine from the code alone
 5. ONLY propose a run when you have a clear, specific implementation plan
 
 CRITICAL RULES:
-- If the user explicitly asks to "create a run", "prepare a run", "start a run", or "make a run" — propose one immediately based on what you know.
+- If the user explicitly asks to "create a run", "prepare a run", "start a run", or "make a run" — propose one immediately based on what you know. Do not investigate further.
+- IMPORTANT: You MUST call the propose_run tool to create a run. Writing "Run created" or describing a run in text does NOT create one. The user can only see and start a run if you actually call propose_run.
 - Investigate first, but BE DECISIVE. Once you understand the problem and know which files are involved, propose a run.
 - When you DO propose a run, the task_description must be extremely specific with exact file paths, function names, and what to change.
 - Always set model to 'haiku' unless the user specifically requests a different model.
 - ALWAYS end your response with either: (a) a concrete run proposal via the propose_run tool, or (b) a clear summary of findings + specific questions if you need more info.
+
+OUTPUT FORMAT — STRICTLY FOLLOW THIS:
+Do NOT output raw reasoning or stream-of-consciousness. Never write "Let me check...", "Now I will...", "Interesting!".
+Transform your investigation into a clean, structured report:
+
+**Summary** — 2-3 sentences: what is the issue, why it matters
+**Root Cause** — Clear, direct explanation (3-4 lines max)
+**Key Findings** — Bullet points only, one concrete observation each
+**Evidence** — Specific files, line numbers, logs (short references, not dumps)
+**Recommended Action** — Numbered steps, clear and executable
+**Risks / Notes** — Only if relevant, keep concise
+
+Use markdown formatting: **bold** for headers, `code` for file paths and functions, bullet points for lists.
+Keep it scannable. No filler language. No repetition. Write like a senior engineer filing a concise report.
 
 CASE BEING INVESTIGATED:
 CASE TITLE: {cluster.title}
@@ -1087,6 +1257,21 @@ Keep responses concise but informative. Use code formatting for file paths and c
         workflows = [w.to_dict() for w in Workflow.query.all()]
         personas = [p.to_dict() for p in Persona.query.all()]
         system_prompt = self._build_cluster_system_prompt(cluster, workflows, personas)
+
+        # Fast path: if user explicitly asks for a run, force propose_run directly
+        last_user_msg = ""
+        for msg in reversed(api_messages):
+            if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                last_user_msg = msg["content"].lower()
+                break
+        _run_phrases = [
+            "create a run", "start a run", "make a run", "prepare a run",
+            "create run", "start run", "run please", "suggest a run",
+            "let's create", "let's start", "let's run", "yes, let",
+            "yes please", "yes, create", "go ahead", "do it",
+        ]
+        if any(p in last_user_msg for p in _run_phrases):
+            return self._force_propose_run_cluster(cluster, workflows, api_messages, system_prompt)
 
         proposed_run = None
         all_text_parts = []
@@ -1190,6 +1375,51 @@ Keep responses concise but informative. Use code formatting for file paths and c
 
             full_response = "\n\n".join(all_text_parts)
 
+            # Safety net: detect if a run should have been proposed but wasn't
+            if not proposed_run:
+                last_user_msg = ""
+                for msg in reversed(api_messages):
+                    if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                        last_user_msg = msg["content"].lower()
+                        break
+                user_wants_run = any(p in last_user_msg for p in [
+                    "create a run", "start a run", "make a run", "prepare a run",
+                    "create run", "start run", "run please", "let's run",
+                    "let's create", "let's start", "yes, let",
+                ])
+                ai_described_run = full_response and any(p in full_response.lower() for p in [
+                    "run created", "run is ready", "proposed run", "here's the run",
+                    "run has been", "run queued", "ready for you to approve",
+                ])
+                if user_wants_run or ai_described_run:
+                    try:
+                        files_hint = cluster.get_files_hint()[:10]
+                        wf_names = ", ".join(w["name"] for w in workflows)
+                        force_resp = self.client.messages.create(
+                            model="claude-haiku-4-5-20251001",
+                            max_tokens=1024,
+                            system=f"You are creating a run for a case. Title: {cluster.title}. Summary: {cluster.summary or 'N/A'}. Root cause: {cluster.root_cause or 'N/A'}. Files: {json.dumps(files_hint)}. Available workflows: {wf_names}.",
+                            tools=[t for t in CHAT_TOOLS if t["name"] == "propose_run"],
+                            tool_choice={"type": "tool", "name": "propose_run"},
+                            messages=[{"role": "user", "content": "Call propose_run now. Use Bug Fix for bugs, New Feature for features, Code Cleanup for refactoring. Set model to haiku. Make the task_description specific with file paths."}],
+                        )
+                        for block in force_resp.content:
+                            if block.type == "tool_use" and block.name == "propose_run":
+                                proposed_run = block.input
+                                wf_name = proposed_run.get("workflow_name", "")
+                                matched_wf = next(
+                                    (w for w in workflows if w["name"].lower() == wf_name.lower()),
+                                    workflows[0] if workflows else None,
+                                )
+                                if matched_wf:
+                                    proposed_run["workflow_id"] = matched_wf["id"]
+                                    proposed_run["workflow"] = matched_wf
+                                cluster.proposed_run = json.dumps(proposed_run)
+                                cluster.status = "ready"
+                                break
+                    except Exception as e:
+                        print(f"⚠️ Force propose_run failed: {e}")
+
             if full_response.strip():
                 cluster.add_chat_message("assistant", full_response)
 
@@ -1212,6 +1442,78 @@ Keep responses concise but informative. Use code formatting for file paths and c
                 "messages": cluster.get_chat_messages(),
                 "proposed_run": None,
                 "error": str(e),
+            }
+
+    def _force_propose_run_cluster(self, cluster, workflows, api_messages, system_prompt) -> dict:
+        """Bypass the investigation loop and force a propose_run tool call."""
+        try:
+            files_hint = cluster.get_files_hint()[:10]
+            wf_names = ", ".join(w["name"] for w in workflows)
+
+            # Build context from cluster + any prior assistant analysis
+            prior_analysis = ""
+            for msg in reversed(api_messages):
+                if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
+                    prior_analysis = msg["content"][:2000]
+                    break
+
+            force_system = f"""Create a run proposal for this engineering case.
+
+CASE: {cluster.title}
+SUMMARY: {cluster.summary or 'See signals below'}
+ROOT CAUSE: {cluster.root_cause or 'To be investigated'}
+FILES: {json.dumps(files_hint)}
+AVAILABLE WORKFLOWS: {wf_names}
+
+{f'PRIOR ANALYSIS: {prior_analysis}' if prior_analysis else ''}
+
+Rules:
+- Match workflow to type: bugs→Bug Fix, features→New Feature, refactoring→Code Cleanup, security→Security Audit, tests→Test Coverage
+- Set model to "haiku"
+- task_description must be specific with file paths and what to change"""
+
+            force_resp = self.client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                system=force_system,
+                tools=[t for t in CHAT_TOOLS if t["name"] == "propose_run"],
+                tool_choice={"type": "tool", "name": "propose_run"},
+                messages=[{"role": "user", "content": "Call propose_run now."}],
+            )
+
+            proposed_run = None
+            for block in force_resp.content:
+                if block.type == "tool_use" and block.name == "propose_run":
+                    proposed_run = block.input
+                    wf_name = proposed_run.get("workflow_name", "")
+                    matched_wf = next(
+                        (w for w in workflows if w["name"].lower() == wf_name.lower()),
+                        workflows[0] if workflows else None,
+                    )
+                    if matched_wf:
+                        proposed_run["workflow_id"] = matched_wf["id"]
+                        proposed_run["workflow"] = matched_wf
+                    cluster.proposed_run = json.dumps(proposed_run)
+                    cluster.status = "ready"
+                    break
+
+            if proposed_run:
+                summary = f"Proposed a **{proposed_run.get('workflow_name', 'Bug Fix')}** run: {proposed_run.get('title', cluster.title)}"
+                cluster.add_chat_message("assistant", summary)
+            else:
+                cluster.add_chat_message("assistant", "I wasn't able to create a run proposal. Please try describing what you'd like fixed.")
+
+            db.session.commit()
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": proposed_run,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "messages": cluster.get_chat_messages(),
+                "proposed_run": None,
+                "error": f"Failed to create run: {e}",
             }
 
     def _send_cluster_cli(self, cluster: SignalCluster, user_message: str) -> dict:
@@ -1255,20 +1557,31 @@ MEMBER SIGNALS ({len(signals)} total):
         prompt += f"""
 YOUR TASK:
 1. Investigate the codebase — read the relevant files, check git history, understand the context
-2. Share specific findings (file paths, line numbers, recent changes)
+2. Present findings as a STRUCTURED REPORT (see format below)
 3. Ask targeted questions about anything you can't determine from code alone
 4. If you have enough context to recommend a fix, end your response with a JSON proposal block
 
 {f'The user says: {user_message}' if user_message else 'This is the initial investigation — investigate and report what you find.'}
+
+OUTPUT FORMAT — STRICTLY FOLLOW THIS:
+Do NOT output raw reasoning or stream-of-consciousness. Never write "Let me check...", "Now I will...", "Interesting!".
+Transform your investigation into a clean, structured report:
+
+**Summary** — 2-3 sentences: what is the issue, why it matters
+**Root Cause** — Clear, direct explanation (3-4 lines max)
+**Key Findings** — Bullet points only, one concrete observation each
+**Evidence** — Specific files, line numbers, logs (short references, not dumps)
+**Recommended Action** — Numbered steps, clear and executable
+
+Use markdown formatting: **bold** for headers, `code` for file paths and functions, bullet points for lists.
+Keep it scannable. No filler language. No repetition.
 
 IMPORTANT: If you want to propose a run, include a JSON block at the END of your response in exactly this format:
 ```json
 {{"PROPOSED_RUN": true, "workflow_name": "Bug Fix", "title": "Short title", "task_description": "Detailed description for the engineer", "auto_approve": true, "model": "haiku"}}
 ```
 Available workflows: {wf_list}
-ALWAYS use "model": "haiku" unless the user specifically asks for a different model.
-
-Be specific, be concise, reference exact file paths and line numbers."""
+ALWAYS use "model": "haiku" unless the user specifically asks for a different model."""
 
         try:
             cmd = ["claude", "-p", prompt, "--output-format", "text"]

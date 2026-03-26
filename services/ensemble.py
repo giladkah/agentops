@@ -138,7 +138,9 @@ class EnsembleOrchestrator:
     def _start_poller(self, ensemble_id: str):
         def _poll():
             import time
-            while True:
+            errors = 0
+            max_errors = 10
+            while errors < max_errors:
                 time.sleep(10)
                 try:
                     if self.app:
@@ -148,11 +150,15 @@ class EnsembleOrchestrator:
                     else:
                         if self._check_done(ensemble_id):
                             return
+                    errors = 0  # reset on success
                 except Exception as e:
-                    print(f"  🎯 Poll error: {e}")
+                    errors += 1
+                    print(f"  🎯 Poll error ({errors}/{max_errors}): {e}")
                     import traceback
                     traceback.print_exc()
-                    return
+                    if errors >= max_errors:
+                        print(f"  🎯 Poller giving up after {max_errors} consecutive errors")
+                        return
 
         threading.Thread(target=_poll, daemon=True).start()
 
@@ -284,7 +290,7 @@ class EnsembleOrchestrator:
 
         self.runner.launch_agent(
             agent_id=f"consensus-{ensemble.id[:8]}",
-            worktree_path=wt_path, prompt=prompt, model="opus",
+            worktree_path=wt_path, prompt=prompt, model="haiku",
             on_complete=lambda aid, ok, out: self._on_consensus_done(ensemble.id, ok, out),
             app=self.app,
         )
@@ -294,7 +300,7 @@ class EnsembleOrchestrator:
         if not ensemble:
             return
 
-        cost = estimate_cost("opus", *AgentRunner.estimate_tokens(output))
+        cost = estimate_cost("haiku", *AgentRunner.estimate_tokens(output))
         ensemble.total_cost += cost
         db.session.commit()
 
@@ -325,7 +331,7 @@ class EnsembleOrchestrator:
         self._log(ensemble.id, "🔍 Consensus reviewer started")
         self.runner.launch_agent(
             agent_id=f"review-{ensemble.id[:8]}",
-            worktree_path=wt_path, prompt=prompt, model="opus",
+            worktree_path=wt_path, prompt=prompt, model="haiku",
             on_complete=lambda aid, ok, out: self._on_review_done(ensemble.id, ok, out),
             app=self.app,
         )
@@ -335,7 +341,7 @@ class EnsembleOrchestrator:
         if not ensemble:
             return
 
-        cost = estimate_cost("opus", *AgentRunner.estimate_tokens(output))
+        cost = estimate_cost("haiku", *AgentRunner.estimate_tokens(output))
         ensemble.total_cost += cost
         db.session.commit()
 
@@ -414,3 +420,23 @@ class EnsembleOrchestrator:
             self._finalize(ensemble)
             return True
         return False
+
+    def cancel_ensemble(self, ensemble_id: str) -> bool:
+        """Cancel an ensemble and all its child runs."""
+        ensemble = EnsembleRun.query.get(ensemble_id)
+        if not ensemble:
+            return False
+        if ensemble.status in ("done", "failed", "cancelled"):
+            return False
+
+        # Cancel all child runs
+        child_runs = Run.query.filter_by(ensemble_id=ensemble_id).all()
+        for run in child_runs:
+            if run.status not in ("done", "merged", "failed"):
+                self.orch.cancel_run(run.id)
+
+        ensemble.status = "failed"
+        ensemble.finished_at = datetime.now(timezone.utc)
+        db.session.commit()
+        self._log(ensemble_id, "Ensemble cancelled", "warning")
+        return True
