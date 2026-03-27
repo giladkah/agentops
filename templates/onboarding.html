@@ -118,22 +118,23 @@ async function saveApiKey() {
 
 function copyYaml() {
   // Get raw YAML text (decode HTML entities)
-  const raw = `name: Ensemble PR Review
-on:
-  pull_request:
-    types: [opened, synchronize]
-permissions:
-  pull-requests: write
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: giladkah/agentops/action@main
-        with:
-          ensemble-url: https://app.ensemblecode.dev
-          ensemble-token: \${{ secrets.ENSEMBLE_TOKEN }}
-          workflow: 'Bug Fix'
-          post-results: comment`;
+  // Build the string without Jinja2-triggering syntax
+  const raw = 'name: Ensemble PR Review\n'
+    + 'on:\n'
+    + '  pull_request:\n'
+    + '    types: [opened, synchronize]\n'
+    + 'permissions:\n'
+    + '  pull-requests: write\n'
+    + 'jobs:\n'
+    + '  review:\n'
+    + '    runs-on: ubuntu-latest\n'
+    + '    steps:\n'
+    + '      - uses: giladkah/agentops/action@main\n'
+    + '        with:\n'
+    + '          ensemble-url: https://app.ensemblecode.dev\n'
+    + '          ensemble-token: $' + '{{ secrets.ENSEMBLE_TOKEN }}\n'
+    + "          workflow: 'Bug Fix'\n"
+    + '          post-results: comment';
   navigator.clipboard.writeText(raw);
   event.target.textContent = 'Copied!';
   setTimeout(() => event.target.textContent = 'Copy', 1500);
