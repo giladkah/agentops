@@ -3,6 +3,7 @@ AgentOps Data Models
 SQLite-backed models for workflows, runs, agents, and personas.
 """
 import json
+import secrets
 import uuid
 from datetime import datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
@@ -24,7 +25,9 @@ class Repository(db.Model):
     github_remote = db.Column(db.String(300), default="")     # auto-detected from git remote
     is_default = db.Column(db.Boolean, default=False)         # default for new runs
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    run_count = db.Column(db.Integer, default=0)              # incremented on each run
+
+    # Multi-tenant: owner
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
 
     # runs relationship defined via backref on Run.repository
 
@@ -53,7 +56,6 @@ class Repository(db.Model):
             "color": self.color,
             "github_remote": self.github_remote,
             "is_default": self.is_default,
-            "run_count": self.run_count,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -82,6 +84,31 @@ class Setting(db.Model):
             db.session.add(s)
         db.session.commit()
         return s
+
+
+class User(db.Model):
+    """A registered user (GitHub OAuth)."""
+    __tablename__ = "users"
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    github_id = db.Column(db.Integer, unique=True, nullable=False)
+    github_login = db.Column(db.String(100), nullable=False)
+    github_avatar = db.Column(db.String(500), default="")
+    github_token = db.Column(db.String(500), default="")       # OAuth token — repo access
+    anthropic_api_key = db.Column(db.String(500), default="")   # user's own key
+    ensemble_token = db.Column(db.String(64), unique=True,
+                               default=lambda: secrets.token_urlsafe(32))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "github_login": self.github_login,
+            "github_avatar": self.github_avatar,
+            "has_api_key": bool(self.anthropic_api_key),
+            "ensemble_token": self.ensemble_token,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class Signal(db.Model):
@@ -121,7 +148,9 @@ class Signal(db.Model):
 
     # Repo association — auto-detected from files_hint, confirmed in triage
     repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
-    repo_hint_id = db.Column(db.String(36), nullable=True)  # AI-suggested repo before user confirms
+
+    # Multi-tenant: owner
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
 
     run = db.relationship("Run", backref="signal", foreign_keys=[run_id])
     repository = db.relationship("Repository", foreign_keys=[repo_id])
@@ -185,7 +214,6 @@ class Signal(db.Model):
             "ensemble_id": self.ensemble_id,
             "proposed_run": self.get_proposed_run(),
             "repo_id": self.repo_id,
-            "repo_hint_id": self.repo_hint_id,
             "repository": self.repository.to_dict() if self.repository else None,
             "cluster_id": self.cluster_id,
         }
@@ -210,6 +238,9 @@ class SignalCluster(db.Model):
     chat_messages = db.Column(db.Text, default="[]")  # JSON array of {role, content, timestamp}
     run_id = db.Column(db.String(36), db.ForeignKey("runs.id"), nullable=True)
     repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
+    # Multi-tenant: owner
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
 
     signals = db.relationship("Signal", backref="cluster", foreign_keys=[Signal.cluster_id])
     run = db.relationship("Run", foreign_keys=[run_id])
@@ -341,6 +372,10 @@ class Run(db.Model):
     # Which repo this run targets — nullable for backward compat with old runs
     repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
 
+    # Multi-tenant: owner + per-run API key for background workers
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
+    anthropic_api_key = db.Column(db.String(500), default="")
+
     workflow = db.relationship("Workflow", backref="runs")
     repository = db.relationship("Repository", foreign_keys=[repo_id], backref="runs")
 
@@ -405,9 +440,6 @@ class Ensemble(db.Model):
     num_runs = db.Column(db.Integer, default=3)
     status = db.Column(db.String(30), default="running")  # running, comparing, consensus, reviewing, done, failed
     base_branch = db.Column(db.String(100), default="main")
-    consensus_agent_id = db.Column(db.String(36), nullable=True)
-    reviewer_agent_id = db.Column(db.String(36), nullable=True)
-    consensus_worktree = db.Column(db.String(200), nullable=True)
     comparison_data = db.Column(db.Text, default="{}")
     total_cost = db.Column(db.Float, default=0.0)
     started_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -415,6 +447,9 @@ class Ensemble(db.Model):
 
     # Which repo this ensemble targets
     repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
+    # Multi-tenant: owner
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
 
     workflow = db.relationship("Workflow")
     repository = db.relationship("Repository", foreign_keys=[repo_id])
@@ -576,6 +611,10 @@ class EnsembleRun(db.Model):
 
     # Which repo this ensemble targets
     repo_id = db.Column(db.String(36), db.ForeignKey("repositories.id"), nullable=True)
+
+    # Multi-tenant: owner + per-ensemble API key for background workers
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
+    anthropic_api_key = db.Column(db.String(500), default="")
 
     workflow = db.relationship("Workflow")
     repository = db.relationship("Repository", foreign_keys=[repo_id])

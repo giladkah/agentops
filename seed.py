@@ -459,7 +459,60 @@ HANDOFF_JSON_END""",
         print(f"  Updated {persona.name} persona with handoff instructions")
 
 
+def _migrate_users_table():
+    """Create the users table if it doesn't exist (for existing databases)."""
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(db.engine)
+    if "users" not in inspector.get_table_names():
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE users (
+                    id VARCHAR(36) PRIMARY KEY,
+                    github_id INTEGER UNIQUE NOT NULL,
+                    github_login VARCHAR(100) NOT NULL,
+                    github_avatar VARCHAR(500) DEFAULT '',
+                    github_token VARCHAR(500) DEFAULT '',
+                    anthropic_api_key VARCHAR(500) DEFAULT '',
+                    ensemble_token VARCHAR(64) UNIQUE,
+                    created_at DATETIME
+                )
+            """))
+        print("  Created users table")
+
+
+def _migrate_user_id_columns():
+    """Add user_id column to tenant-scoped tables if missing."""
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(db.engine)
+    tables = ["signals", "signal_clusters", "runs", "ensemble_runs", "repositories", "ensembles"]
+    for table in tables:
+        if table not in inspector.get_table_names():
+            continue
+        columns = [c["name"] for c in inspector.get_columns(table)]
+        if "user_id" not in columns:
+            with db.engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR(36) REFERENCES users(id)"))
+            print(f"  Added user_id column to {table}")
+
+
+def _migrate_run_api_key():
+    """Add anthropic_api_key column to runs and ensemble_runs if missing."""
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(db.engine)
+    for table in ("runs", "ensemble_runs"):
+        if table not in inspector.get_table_names():
+            continue
+        columns = [c["name"] for c in inspector.get_columns(table)]
+        if "anthropic_api_key" not in columns:
+            with db.engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN anthropic_api_key VARCHAR(500) DEFAULT ''"))
+            print(f"  Added anthropic_api_key column to {table}")
+
+
 def seed_all():
+    _migrate_users_table()
+    _migrate_user_id_columns()
+    _migrate_run_api_key()
     seed_personas()
     seed_workflows()
     _upsert_test_runner()

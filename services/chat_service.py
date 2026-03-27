@@ -127,6 +127,12 @@ class ChatService:
         if HAS_ANTHROPIC and self.api_key:
             self.client = anthropic.Anthropic(api_key=self.api_key)
 
+    def get_client(self, api_key: str = None):
+        """Return an Anthropic client — uses per-call key if provided, else falls back to default."""
+        if api_key and HAS_ANTHROPIC:
+            return anthropic.Anthropic(api_key=api_key)
+        return self.client
+
     def has_cli(self) -> bool:
         return shutil.which("claude") is not None
 

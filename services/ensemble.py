@@ -11,13 +11,19 @@ from services.orchestrator import RunOrchestrator
 from services.git_service import GitService
 from services.agent_runner import AgentRunner, estimate_cost
 
+try:
+    import anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
+
 
 CONSENSUS_PROMPT = """You are a senior consensus engineer. Your job is to synthesize the BEST possible version
 of a code change by analyzing multiple independent attempts at the same task.
 
 You have {num_runs} independent diffs — each is a separate team's attempt at the same task.
 They worked independently and didn't see each other's work.
-
+{divergence_section}
 ## Process
 1. READ all diffs carefully
 2. Changes ALL runs agree on → high confidence, apply them
@@ -185,6 +191,7 @@ class EnsembleOrchestrator:
             return True
 
         self._build_comparison(ensemble)
+        self._analyze_divergence(ensemble)
 
         if ensemble.auto_approve:
             self._start_consensus(ensemble)
@@ -237,6 +244,72 @@ class EnsembleOrchestrator:
         db.session.commit()
         self._log(ensemble.id, f"Comparison built: {len(runs)} runs analyzed")
 
+    def _analyze_divergence(self, ensemble: EnsembleRun):
+        """AI-powered divergence analysis — one-shot Haiku call to explain WHY runs diverged."""
+        # Prefer per-ensemble key, fall back to shared runner key
+        _api_key = getattr(ensemble, 'anthropic_api_key', '') or self.runner.api_key
+        if not HAS_ANTHROPIC or not _api_key:
+            return
+
+        comp = ensemble.get_comparison()
+        runs_data = comp.get("runs", [])
+        if len(runs_data) < 2:
+            return
+
+        # Build truncated diffs for the prompt (~3.5KB each)
+        diffs_block = ""
+        for i, rd in enumerate(runs_data):
+            diff = rd.get("diff_full", "")[:3500]
+            diffs_block += f"\n### Run {i+1}\n```diff\n{diff}\n```\n"
+
+        prompt = f"""Analyze how these {len(runs_data)} independent code diffs diverge from each other.
+They all attempted the same task: {ensemble.task_description}
+
+{diffs_block}
+
+## Divergence types
+- converged: runs produced essentially the same code changes
+- complementary: runs fixed different parts / files — changes can be merged
+- conflicting: runs edited the same code differently — needs human decision
+- partial: one run did significantly more work than another
+- diverged: mixed / hard to classify
+
+Return ONLY a JSON object (no markdown fences, no explanation):
+{{
+  "overall_type": "converged|complementary|conflicting|partial|diverged",
+  "confidence": "high|medium|low",
+  "summary": "2-3 sentence explanation of how and why the runs differ",
+  "pairs": [
+    {{"run_a": 0, "run_b": 1, "type": "complementary", "detail": "1 sentence"}}
+  ],
+  "consensus_hints": ["actionable merge hint 1", "hint 2"]
+}}"""
+
+        try:
+            client = anthropic.Anthropic(api_key=_api_key)
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+
+            # Strip markdown fences if present (same pattern as clustering_service)
+            if text.startswith("```"):
+                lines = text.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                text = "\n".join(lines)
+
+            result = json.loads(text)
+            result["source"] = "ai"
+
+            comp["divergence"] = result
+            ensemble.comparison_data = json.dumps(comp)
+            db.session.commit()
+            self._log(ensemble.id, f"Divergence analysis: {result.get('overall_type', '?')} ({result.get('confidence', '?')})")
+        except Exception as e:
+            print(f"  🎯 [ENSEMBLE] Divergence analysis failed (non-blocking): {e}")
+
     def _start_consensus(self, ensemble: EnsembleRun):
         ensemble.status = "synthesizing"
         db.session.commit()
@@ -256,7 +329,21 @@ class EnsembleOrchestrator:
             if diff:
                 diffs_text += f"\n```diff\n{diff[:5000]}\n```\n"
 
-        prompt = CONSENSUS_PROMPT.format(num_runs=len(runs_data), diffs=diffs_text, task=ensemble.task_description)
+        # Build divergence section for the consensus prompt
+        divergence = comp.get("divergence")
+        divergence_section = ""
+        if divergence and divergence.get("source") == "ai":
+            dtype = divergence.get("overall_type", "unknown")
+            summary = divergence.get("summary", "")
+            hints = divergence.get("consensus_hints", [])
+            divergence_section = f"\n## Divergence Analysis (AI)\nOverall type: {dtype}\n{summary}\n"
+            if hints:
+                divergence_section += "Merge hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
+
+        prompt = CONSENSUS_PROMPT.format(
+            num_runs=len(runs_data), diffs=diffs_text,
+            task=ensemble.task_description, divergence_section=divergence_section,
+        )
 
         # Base off first successful run's synthesis or review branch
         import os
@@ -293,6 +380,7 @@ class EnsembleOrchestrator:
             worktree_path=wt_path, prompt=prompt, model="haiku",
             on_complete=lambda aid, ok, out: self._on_consensus_done(ensemble.id, ok, out),
             app=self.app,
+            api_key=getattr(ensemble, 'anthropic_api_key', '') or None,
         )
 
     def _on_consensus_done(self, ensemble_id: str, success: bool, output: str):
@@ -334,6 +422,7 @@ class EnsembleOrchestrator:
             worktree_path=wt_path, prompt=prompt, model="haiku",
             on_complete=lambda aid, ok, out: self._on_review_done(ensemble.id, ok, out),
             app=self.app,
+            api_key=getattr(ensemble, 'anthropic_api_key', '') or None,
         )
 
     def _on_review_done(self, ensemble_id: str, success: bool, output: str):
@@ -366,22 +455,112 @@ class EnsembleOrchestrator:
             self._log(ensemble.id, f"Push failed: {msg}", "error")
             ensemble.status = "done"
             db.session.commit()
-            return
+            return None
 
         comp = ensemble.get_comparison()
         runs_data = comp.get("runs", [])
-        pr_body = "\n".join([
-            "## 🎯 AgentOps Ensemble (Drift Detection)",
-            "", f"**Task:** {ensemble.task_description}",
-            f"**Method:** {ensemble.num_runs} independent runs → consensus → review",
-            "", "### Runs",
-            "| # | Cost | Duration | Reviews | Status |",
-            "|---|------|----------|---------|--------|",
-        ] + [f"| {i+1} | ${rd.get('cost',0):.2f} | {rd.get('duration',0)}m | {rd.get('review_rounds',0)} | {rd.get('status','?')} |"
-             for i, rd in enumerate(runs_data)] + [
-            "", f"**Total:** ${ensemble.total_cost:.2f} · {ensemble.duration_minutes()} min",
-            "", "---", "*AgentOps Ensemble / Drift Detection*",
-        ])
+
+        # ── Build rich PR body with full run details ──
+        sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
+        total_tokens = 0
+        total_agents = 0
+
+        md = []
+        md.append("## 🎯 AgentOps Ensemble (Drift Detection)\n")
+        md.append(f"**Task:** {ensemble.task_description}\n")
+        md.append(f"**Method:** {ensemble.num_runs} independent runs → consensus → review\n")
+
+        # Summary stats
+        md.append(f"| Metric | Value |")
+        md.append(f"|--------|-------|")
+        md.append(f"| Parallel runs | {ensemble.num_runs} |")
+        md.append(f"| Total cost | ${ensemble.total_cost:.2f} |")
+        md.append(f"| Duration | {ensemble.duration_minutes()} min |")
+        wf = ensemble.workflow
+        if wf:
+            md.append(f"| Workflow | {wf.name} |")
+        md.append("")
+
+        # Per-run breakdown
+        md.append("### Runs\n")
+        md.append("| # | Cost | Duration | Reviews | Agents | Status |")
+        md.append("|---|------|----------|---------|--------|--------|")
+        for i, rd in enumerate(runs_data):
+            n_agents = len(rd.get("agents", []))
+            total_agents += n_agents
+            md.append(f"| {i+1} | ${rd.get('cost',0):.2f} | {rd.get('duration',0)}m | R{rd.get('review_rounds',0)} | {n_agents} | {rd.get('status','?')} |")
+        md.append("")
+
+        # Agent breakdown across all runs
+        md.append("<details><summary><strong>Agent Breakdown</strong></summary>\n")
+        md.append("| Agent | Stage | Issues | Cost | Status |")
+        md.append("|-------|-------|--------|------|--------|")
+        for i, rd in enumerate(runs_data):
+            for ag in rd.get("agents", []):
+                cost = ag.get("cost", 0) or 0
+                md.append(f"| {ag.get('name','?')} (R{i+1}) | {ag.get('stage','')} | {ag.get('issues_found',0)} | ${cost:.3f} | {ag.get('status','')} |")
+        md.append("\n</details>\n")
+
+        # Divergence Analysis section (if AI analysis was run)
+        divergence = comp.get("divergence")
+        if divergence and divergence.get("source") == "ai":
+            dtype = divergence.get("overall_type", "unknown")
+            conf = divergence.get("confidence", "?")
+            summary = divergence.get("summary", "")
+            dtype_icon = {"converged": "=", "complementary": "+", "conflicting": "!", "partial": "~", "diverged": "?"}.get(dtype, "?")
+            md.append(f"### {dtype_icon} Divergence Analysis\n")
+            md.append(f"**Type:** {dtype} · **Confidence:** {conf}\n")
+            md.append(f"{summary}\n")
+            pair_details = divergence.get("pairs", [])
+            if pair_details:
+                md.append("<details><summary><strong>Pairwise Details</strong></summary>\n")
+                for p in pair_details:
+                    md.append(f"- **R{p.get('run_a',0)+1}:R{p.get('run_b',0)+1}** → {p.get('type','?')} — {p.get('detail','')}")
+                md.append("\n</details>\n")
+            hints = divergence.get("consensus_hints", [])
+            if hints:
+                md.append("**Merge hints:**")
+                for h in hints:
+                    md.append(f"- {h}")
+                md.append("")
+
+        # Collect review issues from consensus run (if available)
+        consensus_run = Run.query.get(ensemble.consensus_run_id) if ensemble.consensus_run_id else None
+        review_issues = []
+        if consensus_run:
+            for a in consensus_run.agents:
+                if a.stage_name in ("review", "review-quality", "review-security", "security"):
+                    for iss in a.get_structured_issues():
+                        review_issues.append(iss)
+            total_tokens += (consensus_run.total_tokens_in or 0) + (consensus_run.total_tokens_out or 0)
+
+        # Also tally tokens from child runs
+        for run_id in ensemble.get_run_ids():
+            run = Run.query.get(run_id)
+            if run:
+                total_tokens += (run.total_tokens_in or 0) + (run.total_tokens_out or 0)
+
+        if review_issues:
+            md.append("### Review Findings\n")
+            for iss in sorted(review_issues, key=lambda x: {"critical":0,"high":1,"medium":2,"low":3}.get(x.get("severity","medium"), 2)):
+                sev = iss.get("severity", "medium")
+                icon = sev_icon.get(sev, "⚪")
+                loc = ""
+                if iss.get("file"):
+                    loc = f" `{iss['file']}"
+                    if iss.get("line"): loc += f":{iss['line']}"
+                    loc += "`"
+                md.append(f"- {icon} **{iss.get('title', 'Issue')}**{loc}")
+                if iss.get("note"):
+                    md.append(f"  > {iss['note'][:300]}\n")
+            md.append("")
+
+        # Token + cost summary
+        md.append("---\n")
+        md.append(f"**Totals:** ${ensemble.total_cost:.2f} · {ensemble.duration_minutes()} min · {total_tokens:,} tokens · {total_agents} agents\n")
+        md.append("---\n*Generated by [AgentOps](https://github.com/your-org/agentops) Ensemble / Drift Detection*")
+
+        pr_body = "\n".join(md)
 
         ok, pr_url = self.git.create_pr(branch=branch, title=f"[AgentOps Ensemble] {ensemble.title}",
                                          body=pr_body, base=ensemble.base_branch or "main")
@@ -408,6 +587,7 @@ class EnsembleOrchestrator:
         self._log(ensemble.id,
             f"✅ ENSEMBLE COMPLETE. {ensemble.num_runs} runs → consensus → PR. "
             f"${ensemble.total_cost:.2f}, {ensemble.duration_minutes()} min", "success")
+        return pr_url if ok else None
 
     def approve_ensemble(self, ensemble_id: str) -> bool:
         ensemble = EnsembleRun.query.get(ensemble_id)

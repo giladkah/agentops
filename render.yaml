@@ -5,15 +5,11 @@ services:
     buildCommand: chmod +x bin/render-build.sh && ./bin/render-build.sh
     startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 300 --workers 1 --threads 4 "app:create_app()"
     envVars:
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: GITHUB_PAT
-        sync: false
-      - key: TARGET_REPO
-        sync: false
-      - key: AGENTOPS_REPO
-        value: /opt/render/project/src/target-repo
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false

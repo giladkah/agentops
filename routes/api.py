@@ -1,12 +1,14 @@
 """
 API Routes — REST endpoints for the AgentOps dashboard.
 """
+import re as _re
 import json
 import time
 import threading
+import functools
 from datetime import datetime, timezone
-from flask import Blueprint, request, jsonify, Response, current_app
-from models import db, Run, Agent, Persona, Workflow, LogEntry, EnsembleRun, Setting, Signal, SignalCluster
+from flask import Blueprint, request, jsonify, Response, current_app, session, g
+from models import db, Run, Agent, Persona, Workflow, LogEntry, EnsembleRun, Setting, Signal, SignalCluster, User
 from services.orchestrator import RunOrchestrator
 from services.git_service import GitService
 from services.agent_runner import AgentRunner
@@ -22,9 +24,89 @@ import services.telemetry as telemetry
 api = Blueprint("api", __name__, url_prefix="/api")
 
 
+# ── Auth helpers ──
+
+def get_current_user():
+    """Resolve the current user from session or Bearer token."""
+    # Check if already resolved for this request
+    if hasattr(g, "_cached_user"):
+        return g._cached_user
+
+    user = None
+    uid = session.get("user_id")
+    if uid:
+        user = db.session.get(User, uid)
+    if not user:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            user = User.query.filter_by(ensemble_token=auth[7:]).first()
+
+    g._cached_user = user
+    return user
+
+
+def require_auth(f):
+    """Decorator — sets g.current_user or returns 401."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Authentication required"}), 401
+        g.current_user = user
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ── Shared issue-matching helpers (used by get_run_issues & get_run_results) ──
+
+_sev_ord = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _norm(title):
+    t = title.lower()
+    t = _re.sub(r"[^a-z0-9 ]", " ", t)
+    stop = {"the","a","an","is","are","in","on","at","to","of","and","or","not","for","with","that","this","be","been","as","by","do","it","its"}
+    return {w for w in t.split() if w not in stop and len(w) > 2}
+
+
+def _match(a, b):
+    ta, tb = _norm(a.get("title","")), _norm(b.get("title",""))
+    if not ta or not tb: return False
+    fa = (a.get("file","") or "").split("/")[-1].lower()
+    fb = (b.get("file","") or "").split("/")[-1].lower()
+    file_hit = bool(fa and fb and fa == fb)
+    inter = len(ta & tb)
+    mn = min(len(ta), len(tb))
+    score = (inter / mn * 0.7) if mn else 0
+    score = max(score, inter / len(ta | tb) if ta | tb else 0)
+    if file_hit: score += 0.15
+    return score >= 0.38
+
+
 @api.route("/health")
 def health():
-    return jsonify({"status": "ok", "version": "0.14"})
+    return jsonify({"status": "ok", "version": "0.15"})
+
+
+# ── User / Me ──
+
+@api.route("/me", methods=["GET"])
+@require_auth
+def get_me():
+    return jsonify(g.current_user.to_dict())
+
+
+@api.route("/me", methods=["POST"])
+@require_auth
+def update_me():
+    data = request.json or {}
+    user = g.current_user
+    if "anthropic_api_key" in data:
+        user.anthropic_api_key = data["anthropic_api_key"]
+    if "github_token" in data:
+        user.github_token = data["github_token"]
+    db.session.commit()
+    return jsonify(user.to_dict())
 
 
 @api.errorhandler(404)
@@ -148,9 +230,10 @@ def _agent_log_callback(agent_id, level, message):
 # ── Repository CRUD (multi-repo support) ─────────────────────────────────────
 
 @api.route("/repos", methods=["GET"])
+@require_auth
 def list_repos():
     from models import Repository
-    repos = Repository.query.order_by(Repository.created_at).all()
+    repos = Repository.query.filter_by(user_id=g.current_user.id).order_by(Repository.created_at).all()
     return jsonify([r.to_dict() for r in repos])
 
 
@@ -200,8 +283,9 @@ def set_default_repo_endpoint(repo_id):
 # ── End repository CRUD ───────────────────────────────────────────────────────
 
 @api.route("/runs", methods=["GET"])
+@require_auth
 def list_runs():
-    query = Run.query
+    query = Run.query.filter_by(user_id=g.current_user.id)
     source_id = request.args.get("source_id")
     if source_id:
         query = query.filter(Run.source_id == source_id)
@@ -230,6 +314,7 @@ def get_run(run_id):
 
 
 @api.route("/runs", methods=["POST"])
+@require_auth
 def create_run():
     data = request.json
     try:
@@ -244,6 +329,10 @@ def create_run():
             auto_approve=data.get("auto_approve", False),
             base_branch=data.get("base_branch", "main"),
         )
+        # Scope to current user and store their API key for background workers
+        run.user_id = g.current_user.id
+        run.anthropic_api_key = g.current_user.anthropic_api_key or ""
+        db.session.commit()
         return jsonify(run.to_dict()), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -310,29 +399,6 @@ def get_run_issues(run_id):
     if not review_agents:
         return jsonify({"consensus": [], "majority": [], "unique": [], "total_reviewers": 0, "total_issues": 0})
 
-    import re as _re, json as _j
-
-    def _norm(title):
-        t = title.lower()
-        t = _re.sub(r"[^a-z0-9 ]", " ", t)
-        stop = {"the","a","an","is","are","in","on","at","to","of","and","or","not","for","with","that","this","be","been","as","by","do","it","its"}
-        return {w for w in t.split() if w not in stop and len(w) > 2}
-
-    def _match(a, b):
-        ta, tb = _norm(a.get("title","")), _norm(b.get("title",""))
-        if not ta or not tb: return False
-        fa = (a.get("file","") or "").split("/")[-1].lower()
-        fb = (b.get("file","") or "").split("/")[-1].lower()
-        file_hit = bool(fa and fb and fa == fb)
-        inter = len(ta & tb)
-        mn = min(len(ta), len(tb))
-        score = (inter / mn * 0.7) if mn else 0
-        score = max(score, inter / len(ta | tb) if ta | tb else 0)
-        if file_hit: score += 0.15
-        return score >= 0.38
-
-    _sev_ord = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-
     all_issues = []
     for ag in review_agents:
         for iss in ag.get_structured_issues():
@@ -381,39 +447,14 @@ def get_run_issues(run_id):
 
 @api.route("/runs/<run_id>/results", methods=["GET"])
 def get_run_results(run_id):
-    """Return a flattened summary of run findings suitable for posting as a GitHub comment."""
+    """Return a rich summary of run findings with markdown for GitHub comments."""
     run = Run.query.get_or_404(run_id)
+    all_agents = run.agents
     review_stages = {"review", "review-quality", "review-security", "security"}
-    review_agents = [a for a in run.agents if a.stage_name in review_stages and a.status in ("done", "converged")]
+    review_agents = [a for a in all_agents if a.stage_name in review_stages and a.status in ("done", "converged")]
 
-    findings = []
-    for tier_name in ("consensus", "majority", "unique"):
-        # Reuse the issues endpoint logic inline
-        pass
-
-    # Build issues via the same logic as get_run_issues
-    import re as _re
-
-    def _norm(title):
-        t = title.lower()
-        t = _re.sub(r"[^a-z0-9 ]", " ", t)
-        stop = {"the","a","an","is","are","in","on","at","to","of","and","or","not","for","with","that","this","be","been","as","by","do","it","its"}
-        return {w for w in t.split() if w not in stop and len(w) > 2}
-
-    def _match(a, b):
-        ta, tb = _norm(a.get("title","")), _norm(b.get("title",""))
-        if not ta or not tb: return False
-        fa = (a.get("file","") or "").split("/")[-1].lower()
-        fb = (b.get("file","") or "").split("/")[-1].lower()
-        file_hit = bool(fa and fb and fa == fb)
-        inter = len(ta & tb)
-        mn = min(len(ta), len(tb))
-        score = (inter / mn * 0.7) if mn else 0
-        score = max(score, inter / len(ta | tb) if ta | tb else 0)
-        if file_hit: score += 0.15
-        return score >= 0.38
-
-    _sev_ord = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    _sev_icon = {"critical": "\U0001f534", "high": "\U0001f7e0", "medium": "\U0001f7e1", "low": "\u26aa"}
+    _status_icon = {"done": "\u2705", "converged": "\u2705", "running": "\u23f3", "waiting": "\u23f8\ufe0f", "failed": "\u274c"}
 
     all_issues = []
     for ag in review_agents:
@@ -455,7 +496,103 @@ def get_run_results(run_id):
     for tier in (consensus, majority, unique):
         tier.sort(key=lambda i: _sev_ord.get(i.get("severity","medium"), 2))
 
+    total_findings = len(consensus) + len(majority) + len(unique)
     duration = run.duration_minutes()
+    cost = run.total_cost or 0
+
+    # --- Build per-agent breakdown ---
+    agents_breakdown = []
+    for ag in sorted(all_agents, key=lambda a: (a.started_at or datetime.min)):
+        icon = ag.persona.icon if ag.persona else "\U0001f916"
+        agents_breakdown.append({
+            "name": ag.name,
+            "icon": icon,
+            "stage": ag.stage_name,
+            "status": ag.status,
+            "model": ag.model,
+            "issues_found": ag.issues_found or 0,
+            "cost": round(ag.cost or 0, 4),
+            "tokens_in": ag.tokens_in or 0,
+            "tokens_out": ag.tokens_out or 0,
+            "duration_minutes": ag.duration_minutes(),
+        })
+
+    # --- Build markdown summary ---
+    status_icon = _status_icon.get(run.status, "\u2753")
+    md = []
+    md.append(f"## {status_icon} Ensemble Review \u2014 {run.title or 'Untitled Run'}\n")
+
+    # Stats bar
+    parts = [f"**Status:** {run.status}"]
+    if duration: parts.append(f"\u23f1\ufe0f {duration}min")
+    if cost: parts.append(f"${cost:.2f}")
+    parts.append(f"{len(all_agents)} agents")
+    if n: parts.append(f"{n} reviewers")
+    md.append(" \u00b7 ".join(parts) + "\n")
+
+    # Summary counts
+    if total_findings:
+        counts = []
+        if consensus: counts.append(f"**{len(consensus)}** consensus")
+        if majority: counts.append(f"**{len(majority)}** majority")
+        if unique: counts.append(f"**{len(unique)}** unique")
+        md.append(f"**{total_findings} findings:** {' \u00b7 '.join(counts)}\n")
+    else:
+        md.append("**No findings** \u2014 clean run!\n")
+
+    md.append("---\n")
+
+    # Findings by tier
+    def _render_tier(name, label, items):
+        if not items:
+            return
+        md.append(f"### {label}\n")
+        for iss in items:
+            sev = iss.get("severity", "medium")
+            icon = _sev_icon.get(sev, "\u26aa")
+            loc = ""
+            if iss.get("file"):
+                loc = f"`{iss['file']}"
+                if iss.get("line"): loc += f":{iss['line']}"
+                loc += "`"
+            agreement = f"{iss['found_count']}/{iss['total_reviewers']}" if n > 1 else ""
+            md.append(f"- {icon} **{iss['title']}**")
+            meta = []
+            if loc: meta.append(loc)
+            if sev in ("critical", "high"): meta.append(f"`{sev}`")
+            if agreement: meta.append(f"({agreement} reviewers)")
+            if meta: md.append(f"  {' \u00b7 '.join(meta)}")
+            if iss.get("note"):
+                # Indent note as blockquote, truncate if very long
+                note = iss["note"][:500]
+                md.append(f"  > {note}\n")
+            else:
+                md.append("")
+
+    _render_tier("consensus", "\U0001f534 Consensus (all reviewers agree)", consensus)
+    _render_tier("majority", "\U0001f7e0 Majority (most reviewers agree)", majority)
+    _render_tier("unique", "\u26aa Unique (single reviewer)", unique)
+
+    # Agent breakdown table
+    md.append("---\n")
+    md.append("<details><summary><strong>Agent Breakdown</strong></summary>\n")
+    md.append("| Agent | Stage | Status | Issues | Cost | Tokens | Time |")
+    md.append("|-------|-------|--------|--------|------|--------|------|")
+    for ab in agents_breakdown:
+        s_icon = _status_icon.get(ab["status"], "")
+        tokens = f"{ab['tokens_in'] + ab['tokens_out']:,}"
+        md.append(
+            f"| {ab['icon']} {ab['name']} | {ab['stage']} | {s_icon} {ab['status']} "
+            f"| {ab['issues_found']} | ${ab['cost']:.3f} | {tokens} | {ab['duration_minutes']}min |"
+        )
+    md.append("\n</details>\n")
+
+    # Footer
+    wf_name = run.workflow.name if run.workflow else "unknown"
+    md.append(f"---\n*Ensemble \u00b7 workflow: {wf_name} \u00b7 run: `{run.id[:8]}`*")
+
+    markdown = "\n".join(md)
+
     return jsonify({
         "run_id": run.id,
         "status": run.status,
@@ -464,10 +601,13 @@ def get_run_results(run_id):
         "majority": majority,
         "unique": unique,
         "total_reviewers": n,
-        "total_findings": len(consensus) + len(majority) + len(unique),
+        "total_findings": total_findings,
         "duration_minutes": duration,
-        "total_cost": run.total_cost,
-        "workflow": run.workflow.name if run.workflow else None,
+        "total_cost": cost,
+        "total_tokens": sum(a.get("tokens_in", 0) + a.get("tokens_out", 0) for a in agents_breakdown),
+        "workflow": wf_name,
+        "agents": agents_breakdown,
+        "markdown": markdown,
     })
 
 
@@ -593,8 +733,9 @@ def create_persona():
 # ── Ensemble (Drift Detection) ──
 
 @api.route("/ensembles", methods=["GET"])
+@require_auth
 def list_ensembles():
-    ensembles = EnsembleRun.query.order_by(EnsembleRun.started_at.desc()).limit(20).all()
+    ensembles = EnsembleRun.query.filter_by(user_id=g.current_user.id).order_by(EnsembleRun.started_at.desc()).limit(20).all()
     return jsonify([e.to_dict() for e in ensembles])
 
 
@@ -633,6 +774,7 @@ def get_ensemble(eid):
 
 
 @api.route("/ensembles", methods=["POST"])
+@require_auth
 def create_ensemble():
     data = request.json
     try:
@@ -646,6 +788,10 @@ def create_ensemble():
             auto_approve=data.get("auto_approve", True),
             individual_prs=data.get("individual_prs", False),
         )
+        # Scope to current user and store their API key for background workers
+        ensemble.user_id = g.current_user.id
+        ensemble.anthropic_api_key = g.current_user.anthropic_api_key or ""
+        db.session.commit()
         return jsonify(ensemble.to_dict()), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -681,6 +827,7 @@ def retry_ensemble_consensus(eid):
         # Build comparison if missing
         if not ensemble.comparison_data or ensemble.comparison_data == "{}":
             ensemble_orchestrator._build_comparison(ensemble)
+            ensemble_orchestrator._analyze_divergence(ensemble)
         success = ensemble_orchestrator.approve_ensemble(eid)
         if success:
             return jsonify({"status": "consensus_started"})
@@ -699,17 +846,18 @@ def cancel_ensemble(eid):
 @api.route("/ensembles/<eid>/pr", methods=["POST"])
 def ensemble_create_pr(eid):
     ensemble = EnsembleRun.query.get_or_404(eid)
-    ensemble_orchestrator._finalize(ensemble)
+    pr_url = ensemble_orchestrator._finalize(ensemble)
     telemetry.track_pr_created(source="ensemble")
-    return jsonify({"status": "pr_created"})
+    return jsonify({"status": "pr_created", "pr_url": pr_url})
 
 
 # ── Signals ──
 
 @api.route("/signals", methods=["GET"])
+@require_auth
 def list_signals():
     """List signals with pagination, newest first. Params: ?status=, ?source=, ?offset=, ?limit="""
-    query = Signal.query.order_by(Signal.created_at.desc())
+    query = Signal.query.filter_by(user_id=g.current_user.id).order_by(Signal.created_at.desc())
     status = request.args.get("status")
     if status:
         query = query.filter_by(status=status)
@@ -734,10 +882,11 @@ def list_signals():
 
 
 @api.route("/signals/counts", methods=["GET"])
+@require_auth
 def signal_counts():
     """Get signal counts by source (lightweight, no payload)."""
     from sqlalchemy import func
-    rows = db.session.query(Signal.source, func.count(Signal.id)).group_by(Signal.source).all()
+    rows = db.session.query(Signal.source, func.count(Signal.id)).filter(Signal.user_id == g.current_user.id).group_by(Signal.source).all()
     counts = {source: count for source, count in rows}
     counts["total"] = sum(counts.values())
     return jsonify(counts)
@@ -750,6 +899,7 @@ def get_signal(signal_id):
 
 
 @api.route("/signals", methods=["POST"])
+@require_auth
 def create_signal():
     """Create a signal. Accepts optional source and source_id for external integrations."""
     data = request.json
@@ -762,6 +912,7 @@ def create_signal():
         files_hint=json.dumps(data.get("files_hint", [])),
         raw_payload=json.dumps(data.get("raw_payload", {"text": data.get("text", data.get("summary", ""))})),
         status="new",
+        user_id=g.current_user.id,
     )
     db.session.add(signal)
     db.session.commit()
@@ -770,6 +921,7 @@ def create_signal():
 
 
 @api.route("/signals/sentry", methods=["POST"])
+@require_auth
 def sentry_webhook():
     """Sentry webhook adapter — normalizes Sentry alert into a Signal."""
     payload = request.json or {}
@@ -827,6 +979,7 @@ def sentry_webhook():
         files_hint=json.dumps(files[:10]),
         raw_payload=json.dumps(payload)[:50000],
         status="new",
+        user_id=g.current_user.id,
     )
     db.session.add(signal)
     db.session.commit()
@@ -836,6 +989,7 @@ def sentry_webhook():
 
 
 @api.route("/signals/shortcut", methods=["POST"])
+@require_auth
 def shortcut_webhook():
     """Shortcut webhook adapter — normalizes Shortcut story into a Signal."""
     payload = request.json or {}
@@ -874,6 +1028,7 @@ def shortcut_webhook():
         files_hint=json.dumps(files[:10]),
         raw_payload=json.dumps(payload)[:50000],
         status="new",
+        user_id=g.current_user.id,
     )
     db.session.add(signal)
     db.session.commit()
@@ -883,6 +1038,7 @@ def shortcut_webhook():
 
 
 @api.route("/signals/github", methods=["POST"])
+@require_auth
 def github_webhook():
     """GitHub webhook adapter — normalizes GitHub issue/PR into a Signal."""
     payload = request.json or {}
@@ -927,6 +1083,7 @@ def github_webhook():
         files_hint=json.dumps(files[:10]),
         raw_payload=json.dumps(payload)[:50000],
         status="new",
+        user_id=g.current_user.id,
     )
     db.session.add(signal)
     db.session.commit()
@@ -1025,6 +1182,7 @@ def triage_status():
 
 
 @api.route("/signals/<signal_id>/create-run", methods=["POST"])
+@require_auth
 def create_run_from_signal(signal_id):
     """Create a run from the signal's proposed run configuration."""
     try:
@@ -1115,6 +1273,10 @@ def create_run_from_signal(signal_id):
             source_id=signal.source_id or "",
             auto_approve=auto_approve,
         )
+
+        # Scope to current user
+        run.user_id = g.current_user.id
+        run.anthropic_api_key = g.current_user.anthropic_api_key or ""
 
         # Link signal to run
         signal.run_id = run.id
@@ -1329,18 +1491,21 @@ def github_issue_detail(owner, repo, number):
 # ── Stats ──
 
 @api.route("/stats", methods=["GET"])
+@require_auth
 def get_stats():
     from sqlalchemy import func
-    total_runs = Run.query.count()
-    total_cost = db.session.query(func.sum(Run.total_cost)).scalar() or 0
-    active_runs = Run.query.filter(Run.status.in_(["running", "needs_approval"])).count()
+    uid = g.current_user.id
+    total_runs = Run.query.filter_by(user_id=uid).count()
+    total_cost = db.session.query(func.sum(Run.total_cost)).filter(Run.user_id == uid).scalar() or 0
+    active_runs = Run.query.filter(Run.user_id == uid, Run.status.in_(["running", "needs_approval"])).count()
     active_agents = agent_runner.count_active()
 
     active_ensembles = EnsembleRun.query.filter(
+        EnsembleRun.user_id == uid,
         EnsembleRun.status.in_(["running", "comparing", "synthesizing", "reviewing"])
     ).count()
 
-    signal_count = Signal.query.filter(Signal.status.in_(["new", "investigating", "ready"])).count()
+    signal_count = Signal.query.filter(Signal.user_id == uid, Signal.status.in_(["new", "investigating", "ready"])).count()
 
     return jsonify({
         "total_runs": total_runs,
@@ -1769,10 +1934,11 @@ def sentry_issue_detail(issue_id):
 # ── Clusters ──
 
 @api.route("/clusters", methods=["GET"])
+@require_auth
 def list_clusters():
     """List clusters with optional status/severity filter, sorting, and pagination."""
     from sqlalchemy import case as sql_case
-    query = SignalCluster.query
+    query = SignalCluster.query.filter_by(user_id=g.current_user.id)
     status = request.args.get("status")
     if status == "active":
         query = query.filter(SignalCluster.status.notin_(("done", "failed")))
@@ -1867,7 +2033,7 @@ def update_cluster(cluster_id):
     """Update cluster fields (title, severity, status, root_cause, summary)."""
     cluster = SignalCluster.query.get_or_404(cluster_id)
     data = request.json or {}
-    for field in ("title", "severity", "status", "root_cause", "summary"):
+    for field in ("title", "severity", "status", "root_cause", "summary", "run_id"):
         if field in data:
             setattr(cluster, field, data[field])
     db.session.commit()

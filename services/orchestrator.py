@@ -286,6 +286,7 @@ class RunOrchestrator:
             app=self.app,
             max_turns=max_turns,
             agent_role=agent_role,
+            api_key=getattr(run, 'anthropic_api_key', '') or None,
         )
 
     def _on_agent_complete(self, agent_id: str, success: bool, output: str):

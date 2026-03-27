@@ -391,6 +391,7 @@ class AgentRunner:
         app=None,
         max_turns: int = None,
         agent_role: str = None,
+        api_key: str = None,
     ) -> bool:
         """Launch a Claude agent — dispatches to API or CLI backend based on current mode."""
         if agent_id in self._active_cancel or agent_id in self._active_procs:
@@ -403,15 +404,21 @@ class AgentRunner:
         self.stream_buffers[agent_id] = buf
 
         if self._mode == "api":
-            return self._launch_api(agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns, agent_role=agent_role)
+            return self._launch_api(agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns, agent_role=agent_role, api_key=api_key)
         else:
             return self._launch_cli(agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns)
 
     # ── API Backend (streaming + tool use) ──
 
-    def _launch_api(self, agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns=MAX_AGENTIC_TURNS, agent_role=None):
+    def _launch_api(self, agent_id, worktree_path, prompt, model, on_complete, app, buf, max_turns=MAX_AGENTIC_TURNS, agent_role=None, api_key=None):
         cancel_event = threading.Event()
         self._active_cancel[agent_id] = cancel_event
+
+        # Resolve the client: use per-call key if provided, else fall back to shared
+        if api_key and HAS_ANTHROPIC:
+            _client = anthropic.Anthropic(api_key=api_key)
+        else:
+            _client = self.client
 
         def _run():
             api_model = resolve_model(model)
@@ -447,7 +454,7 @@ class AgentRunner:
                     try:
                         response_text = ""
 
-                        with self.client.messages.stream(
+                        with _client.messages.stream(
                             model=api_model,
                             max_tokens=MAX_TOKENS_PER_TURN,
                             messages=messages,

@@ -3,10 +3,10 @@ AgentOps — Multi-Agent Workflow Dashboard
 Flask application entry point.
 """
 import os
-import signal
 import atexit
-from flask import Flask, render_template, send_from_directory
-from models import db
+import requests as _requests
+from flask import Flask, render_template, redirect, request, session, url_for
+from models import db, User
 from routes.api import api, init_services
 import services.repos as repos_svc
 from seed import seed_all
@@ -22,6 +22,10 @@ def create_app(repo_path: str = None, api_key: str = None):
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "agentops-dev-key")
     app.config["REPO_PATH"] = repo_path or os.environ.get("AGENTOPS_REPO", os.getcwd())
     app.config["ANTHROPIC_API_KEY"] = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+
+    # GitHub OAuth config
+    app.config["GITHUB_CLIENT_ID"] = os.environ.get("GITHUB_CLIENT_ID", "")
+    app.config["GITHUB_CLIENT_SECRET"] = os.environ.get("GITHUB_CLIENT_SECRET", "")
 
     # Init DB
     db.init_app(app)
@@ -49,14 +53,131 @@ def create_app(repo_path: str = None, api_key: str = None):
     # Register API routes
     app.register_blueprint(api)
 
-    # Page routes
+    # ── Helper: ensure local-dev user exists when OAuth is not configured ──
+
+    def _get_or_create_local_user():
+        """Auto-create/use a 'local-dev' user when GITHUB_CLIENT_ID is not set."""
+        user = User.query.filter_by(github_id=0).first()
+        if not user:
+            user = User(
+                github_id=0,
+                github_login="local-dev",
+                github_avatar="",
+                anthropic_api_key=app.config.get("ANTHROPIC_API_KEY", ""),
+            )
+            db.session.add(user)
+            db.session.commit()
+        return user
+
+    # ── Page routes ──
+
     @app.route("/")
     def dashboard():
-        return render_template("dashboard.html")
+        if app.config["GITHUB_CLIENT_ID"]:
+            # OAuth mode: require login
+            uid = session.get("user_id")
+            if not uid:
+                return render_template("login.html")
+            user = db.session.get(User, uid)
+            if not user:
+                session.clear()
+                return render_template("login.html")
+            return render_template("dashboard.html", user=user)
+        else:
+            # Local dev mode: auto-login
+            user = _get_or_create_local_user()
+            session["user_id"] = user.id
+            return render_template("dashboard.html", user=user)
 
     @app.route("/focus")
     def focus():
         return render_template("focus.html")
+
+    # ── GitHub OAuth routes ──
+
+    @app.route("/login")
+    def login():
+        client_id = app.config["GITHUB_CLIENT_ID"]
+        if not client_id:
+            return redirect("/")
+        callback_url = url_for("auth_callback", _external=True)
+        return redirect(
+            f"https://github.com/login/oauth/authorize"
+            f"?client_id={client_id}"
+            f"&scope=repo,read:user"
+            f"&redirect_uri={callback_url}"
+        )
+
+    @app.route("/auth/callback")
+    def auth_callback():
+        code = request.args.get("code")
+        if not code:
+            return redirect("/")
+
+        # Exchange code for access token
+        resp = _requests.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": app.config["GITHUB_CLIENT_ID"],
+                "client_secret": app.config["GITHUB_CLIENT_SECRET"],
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            return redirect("/")
+
+        # Get user profile from GitHub
+        gh_user = _requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        ).json()
+
+        github_id = gh_user.get("id")
+        if not github_id:
+            return redirect("/")
+
+        # Upsert user record
+        user = User.query.filter_by(github_id=github_id).first()
+        is_new = user is None
+        if is_new:
+            user = User(
+                github_id=github_id,
+                github_login=gh_user.get("login", ""),
+                github_avatar=gh_user.get("avatar_url", ""),
+                github_token=access_token,
+            )
+            db.session.add(user)
+        else:
+            user.github_login = gh_user.get("login", user.github_login)
+            user.github_avatar = gh_user.get("avatar_url", user.github_avatar)
+            user.github_token = access_token
+        db.session.commit()
+
+        session["user_id"] = user.id
+
+        if is_new:
+            return redirect("/onboarding")
+        return redirect("/")
+
+    @app.route("/onboarding")
+    def onboarding():
+        uid = session.get("user_id")
+        if not uid:
+            return redirect("/")
+        user = db.session.get(User, uid)
+        if not user:
+            return redirect("/")
+        return render_template("onboarding.html", user=user)
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        return redirect("/")
 
     return app
 

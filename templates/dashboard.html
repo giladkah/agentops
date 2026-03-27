@@ -725,10 +725,12 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
     .chat-msg-analyzing .analyze-title{font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:6px}
     .chat-msg-analyzing .analyze-title .analyze-pulse{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
     .chat-msg-analyzing .analyze-steps{display:flex;flex-direction:column;gap:4px}
-    .chat-msg-analyzing .analyze-step{font-size:var(--fs-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;line-height:1.3}
+    .chat-msg-analyzing .analyze-step{font-size:var(--fs-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;line-height:1.3;transition:color .3s,opacity .3s}
     .chat-msg-analyzing .analyze-step.done{color:var(--text-secondary)}
     .chat-msg-analyzing .analyze-step.active{color:var(--accent)}
     .chat-msg-analyzing .analyze-step-icon{width:14px;text-align:center;flex-shrink:0;font-size:10px}
+    .chat-msg-analyzing .analyze-step.active .analyze-step-icon{animation:spinArrow 1s linear infinite}
+    @keyframes spinArrow{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
 
     /* ── Inline proposed run card ─────────────────────────────────── */
     .chat-run-card{margin:4px 0 4px 36px;background:var(--bg-secondary);border:1px solid rgba(129,140,248,0.2);border-radius:var(--radius-lg);overflow:hidden}
@@ -818,6 +820,8 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
 
     /* ── Sidebar panels ───────────────────────────────────────────────── */
     .sidebar-panel{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+    /* User dropdown */
+    #user-dropdown.show{display:block!important}
 
     </style>
 </head>
@@ -840,8 +844,27 @@ body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;backgroun
         <span class="topbar-divider"></span>
         <button class="btn btn-sm" onclick="toggleCommandPalette()" title="Command Palette (⌘K)" style="color:var(--text4);border-color:transparent;background:transparent"><span style="font-family:var(--font-mono)">⌘K</span></button>
         <button class="btn btn-sm" onclick="refreshData()" style="border-color:transparent;background:transparent;color:var(--text4)">Refresh</button>
+        {% if user %}
+        <span class="topbar-divider"></span>
+        <div style="position:relative" id="user-menu-wrapper">
+          <button class="btn btn-sm" onclick="document.getElementById('user-dropdown').classList.toggle('show')" style="border-color:transparent;background:transparent;display:flex;align-items:center;gap:6px;padding:4px">
+            {% if user.github_avatar %}<img src="{{ user.github_avatar }}" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border-default)">{% endif %}
+            <span style="color:var(--text-secondary);font-size:var(--fs-xs)">{{ user.github_login }}</span>
+          </button>
+          <div id="user-dropdown" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:var(--bg-secondary);border:1px solid var(--border-default);border-radius:var(--radius);padding:4px;min-width:160px;z-index:100;box-shadow:var(--shadow-lg)">
+            <a href="/onboarding" style="display:block;padding:8px 12px;font-size:var(--fs-xs);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">Settings</a>
+            <a href="/logout" style="display:block;padding:8px 12px;font-size:var(--fs-xs);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">Logout</a>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </div>
+    {% if user and not user.anthropic_api_key %}
+    <div id="api-key-banner" style="background:rgba(240,184,73,0.08);border-bottom:1px solid rgba(240,184,73,0.15);padding:8px 20px;display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-xs);flex-shrink:0">
+      <span style="color:var(--warning)">Set your Anthropic API key to start running agents &rarr; <a href="/onboarding" style="color:var(--warning);font-weight:600;text-decoration:underline">Setup</a></span>
+      <button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0 4px">&times;</button>
+    </div>
+    {% endif %}
     <div class="content" id="content">
 
       <!-- ═══ THREE-COLUMN LAYOUT: sidebar (220px) | main content (flex) | context panel (280px) ═══ -->
@@ -3213,8 +3236,19 @@ function closeEnsembleDetail() {
 }
 
 async function ensemblePR(id) {
-  await api.post('/ensembles/'+id+'/pr', {});
-  refreshData();
+  try {
+    showToastMessage('Creating PR...', 'info');
+    const resp = await api.post('/ensembles/'+id+'/pr', {});
+    if (resp.pr_url) {
+      showToastMessage('PR created — opening in new tab', 'success');
+      window.open(resp.pr_url, '_blank');
+    } else {
+      showToastMessage('PR created (branch pushed)', 'success');
+    }
+    await refreshData();
+  } catch(e) {
+    showToastMessage('PR failed: ' + (e.message || e), 'error');
+  }
 }
 
 /* ═══════════════════════════════════════
@@ -3687,7 +3721,7 @@ function _buildInlineRunCard(c) {
       </div>
       <button class="rp-btn rp-btn-go" onclick="createCaseRun('${c.id}')">Run agents</button>
     </div>` : ''}
-    ${c.run_id ? `<div style="padding:8px 14px;border-top:1px solid var(--border)"><span style="font-size:11px;color:var(--text-muted)">Run in progress</span></div>` : ''}
+    ${c.run_id ? `<div style="padding:8px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:6px;cursor:pointer" onclick="selectRun('${c.run_id}')"><span style="font-size:11px;color:var(--accent);font-weight:600">View run \u2192</span><span style="font-size:10px;color:var(--text4);font-family:var(--font-mono)">${c.run_id.substring(0,8)}</span>${c.status === 'running' ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:var(--accent-muted);color:var(--accent);font-weight:600;margin-left:auto">RUNNING</span>' : ''}${c.status === 'done' ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(52,211,153,0.15);color:var(--success);font-weight:600;margin-left:auto">DONE</span>' : ''}${c.status === 'failed' ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(240,112,112,0.15);color:var(--error);font-weight:600;margin-left:auto">FAILED</span>' : ''}</div>` : ''}
   </div>`;
 }
 
@@ -3701,28 +3735,50 @@ function setCaseRunCount(n) {
 }
 
 let _analyzeStepTimer = null;
-const _analyzeSteps = [
-  'Reviewing finding context',
-  'Checking severity consistency',
-  'Comparing signals and root cause',
-  'Drafting response',
-];
 
-function _showAnalyzeProgress() {
+function _buildAnalyzeSteps(caseData) {
+  const signals = caseData?.signals || [];
+  const n = signals.length || (caseData?.signal_count || 0);
+  const sources = [...new Set(signals.map(s => s.source).filter(Boolean))];
+  const files = caseData?.files_hint || [];
+
+  const steps = [];
+
+  // Step 1 — always: load context
+  steps.push(n > 1 ? `Loading ${n} related signals` : 'Loading finding context');
+
+  // Step 2 — source-specific enrichment
+  if (sources.includes('sentry'))        steps.push('Fetching stack traces from Sentry');
+  else if (sources.includes('github'))   steps.push('Pulling issue details from GitHub');
+  else if (sources.includes('shortcut')) steps.push('Pulling story details from Shortcut');
+  else                                   steps.push('Enriching signal context');
+
+  // Step 3 — codebase investigation
+  if (files.length > 0)
+    steps.push(`Investigating ${files.length} file${files.length > 1 ? 's' : ''} in codebase`);
+  else
+    steps.push('Searching codebase for relevant code');
+
+  // Step 4 — always: form response
+  steps.push('Forming response');
+  return steps;
+}
+
+function _showAnalyzeProgress(steps) {
   let step = 0;
   const el = document.getElementById('case-chat-analyzing');
   if (!el) return;
   _analyzeStepTimer = setInterval(() => {
     step++;
-    if (step >= _analyzeSteps.length) { clearInterval(_analyzeStepTimer); return; }
+    if (step >= steps.length) { clearInterval(_analyzeStepTimer); _analyzeStepTimer = null; return; }
     const stepsEl = el.querySelector('.analyze-steps');
     if (!stepsEl) return;
-    stepsEl.innerHTML = _analyzeSteps.map((s, i) => {
-      if (i < step) return `<div class="analyze-step done"><span class="analyze-step-icon">\u{2713}</span>${esc(s)}</div>`;
-      if (i === step) return `<div class="analyze-step active"><span class="analyze-step-icon">\u{2192}</span>${esc(s)}</div>`;
-      return `<div class="analyze-step"><span class="analyze-step-icon">\u{25CB}</span>${esc(s)}</div>`;
+    stepsEl.innerHTML = steps.map((s, i) => {
+      if (i < step) return `<div class="analyze-step done"><span class="analyze-step-icon">\u2713</span>${esc(s)}</div>`;
+      if (i === step) return `<div class="analyze-step active"><span class="analyze-step-icon">\u2192</span>${esc(s)}</div>`;
+      return `<div class="analyze-step"><span class="analyze-step-icon">\u25CB</span>${esc(s)}</div>`;
     }).join('');
-  }, 1200);
+  }, 1800);
 }
 
 async function sendCaseChat() {
@@ -3742,23 +3798,25 @@ async function sendCaseChat() {
   // Append user message
   container.innerHTML += _renderUserMsg({role:'user', content:message, timestamp: new Date().toISOString()});
 
-  // Show live analysis indicator
+  // Build context-aware progress steps from live case data
+  const steps = _buildAnalyzeSteps(_currentCaseData);
+
   container.innerHTML += `<div class="chat-msg-analyzing" id="case-chat-analyzing">
     <div class="chat-av">AI</div>
     <div class="analyze-card">
       <div class="analyze-title"><div class="analyze-pulse"></div>Analyzing</div>
       <div class="analyze-steps">
-        <div class="analyze-step active"><span class="analyze-step-icon">\u{2192}</span>${esc(_analyzeSteps[0])}</div>
-        ${_analyzeSteps.slice(1).map(s => `<div class="analyze-step"><span class="analyze-step-icon">\u{25CB}</span>${esc(s)}</div>`).join('')}
+        <div class="analyze-step active"><span class="analyze-step-icon">\u2192</span>${esc(steps[0])}</div>
+        ${steps.slice(1).map(s => `<div class="analyze-step"><span class="analyze-step-icon">\u25CB</span>${esc(s)}</div>`).join('')}
       </div>
     </div>
   </div>`;
   container.scrollTop = container.scrollHeight;
-  _showAnalyzeProgress();
+  _showAnalyzeProgress(steps);
 
   try {
     const resp = await api.post('/clusters/' + state.activeCaseId + '/chat', { message });
-    clearInterval(_analyzeStepTimer);
+    if (_analyzeStepTimer) { clearInterval(_analyzeStepTimer); _analyzeStepTimer = null; }
     const analyzing = document.getElementById('case-chat-analyzing');
     if (analyzing) analyzing.remove();
 
@@ -3788,7 +3846,7 @@ async function sendCaseChat() {
       updateContextPanel('overview');
     }
   } catch(e) {
-    clearInterval(_analyzeStepTimer);
+    if (_analyzeStepTimer) { clearInterval(_analyzeStepTimer); _analyzeStepTimer = null; }
     const analyzing = document.getElementById('case-chat-analyzing');
     if (analyzing) analyzing.remove();
     container.innerHTML += `<div class="chat-msg-agent"><div class="chat-av">AI</div>
@@ -4007,7 +4065,7 @@ async function createCaseRun(id) {
         agent_configs: agentConfigs,
       });
 
-      await api.put('/clusters/' + id, { status: 'running' });
+      await api.put('/clusters/' + id, { status: 'running', run_id: run.id });
       await api.post('/runs/' + run.id + '/start', {});
 
       showToastMessage('Run started', 'success');
@@ -4523,9 +4581,66 @@ function renderRunCtxAgentTable(issues) {
   return html;
 }
 
+function renderAIDivergencePanel(div, runs) {
+  const dtypeIcon = {converged:'=', complementary:'+', conflicting:'!', partial:'~', diverged:'?'};
+  const dtypeColor = {converged:'var(--success)', complementary:'var(--accent)', conflicting:'var(--error)', partial:'var(--warning)', diverged:'var(--warning)'};
+  const confBadge = {high:'var(--success)', medium:'var(--warning)', low:'var(--text-muted)'};
+
+  const icon = dtypeIcon[div.overall_type] || '?';
+  const ringColor = dtypeColor[div.overall_type] || 'var(--text-muted)';
+  const confColor = confBadge[div.confidence] || 'var(--text-muted)';
+
+  let html = '<div class="ctx-section">';
+  html += '<div class="ctx-section-title">Code Consistency <span style="font-size:9px;color:var(--accent);font-weight:400;margin-left:4px">AI</span></div>';
+
+  // Ring with type icon
+  html += `<div class="ctx-similarity-ring" style="border-color:${ringColor};color:${ringColor}">${esc(icon)}</div>`;
+  html += `<div style="text-align:center;font-size:11px;color:${ringColor};font-weight:600;margin-bottom:2px">${esc(div.overall_type)}</div>`;
+  html += `<div style="text-align:center;margin-bottom:var(--sp-3)"><span style="font-size:9px;padding:1px 6px;border-radius:6px;background:${confColor};color:var(--bg-primary);font-weight:600">${esc(div.confidence)}</span></div>`;
+
+  // AI summary
+  html += `<div style="font-size:11px;color:var(--text-secondary);line-height:1.5;padding:0 4px;margin-bottom:var(--sp-3)">${esc(div.summary || '')}</div>`;
+
+  // Pairwise breakdown
+  const pairs = div.pairs || [];
+  if (pairs.length > 0) {
+    for (const p of pairs) {
+      const pColor = dtypeColor[p.type] || 'var(--warning)';
+      html += `<div class="ctx-pairwise-bar">
+        <span class="pw-label">R${(p.run_a||0)+1}:R${(p.run_b||0)+1}</span>
+        <div class="pw-track"><div class="pw-fill" style="width:100%;background:${pColor}"></div></div>
+        <span class="pw-pct" style="color:${pColor}">${esc(p.type||'?')}</span>
+      </div>`;
+      if (p.detail) {
+        html += `<div style="font-size:10px;color:var(--text-muted);padding-left:44px;margin-bottom:4px;line-height:1.3">${esc(p.detail)}</div>`;
+      }
+    }
+  }
+
+  // Merge hints
+  const hints = div.consensus_hints || [];
+  if (hints.length > 0) {
+    html += '<div style="margin-top:var(--sp-3);padding-top:var(--sp-2);border-top:1px solid var(--border-default)">';
+    html += '<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;margin-bottom:4px">Merge Hints</div>';
+    for (const h of hints) {
+      html += `<div style="font-size:10px;color:var(--text-secondary);line-height:1.4;padding-left:8px;margin-bottom:3px;position:relative"><span style="position:absolute;left:0;color:var(--accent)">›</span>${esc(h)}</div>`;
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
 function renderRunCtxDiffSimilarity(comparison) {
   const runs = comparison.runs || [];
   if (runs.length < 2) return '';
+
+  // Delegate to AI panel if divergence analysis is available
+  const div = comparison.divergence;
+  if (div && div.source === 'ai') {
+    return renderAIDivergencePanel(div, runs);
+  }
 
   // Extract changed lines from diff_full for each run
   function extractChangedLines(diffText) {
@@ -4560,13 +4675,24 @@ function renderRunCtxDiffSimilarity(comparison) {
   const runLines = runs.map(r => extractChangedLines(r.diff_full || ''));
   const runFiles = runs.map(r => extractFiles(r.diff_full || ''));
 
-  // Pairwise similarities
+  // Pairwise analysis: similarity + divergence classification
   const pairs = [];
   let totalSim = 0, pairCount = 0;
   for (let i = 0; i < runs.length; i++) {
     for (let j = i + 1; j < runs.length; j++) {
       const sim = jaccard(runLines[i], runLines[j]);
-      pairs.push({ i, j, sim });
+      const fileSim = jaccard(runFiles[i], runFiles[j]);
+
+      // Classify divergence type
+      let dtype;
+      if (sim >= 0.7)               dtype = 'converged';     // same approach
+      else if (fileSim < 0.2)       dtype = 'complementary'; // different files entirely
+      else if (fileSim >= 0.5 && sim < 0.3) dtype = 'conflicting'; // same files, different code
+      else if (runLines[i].size > runLines[j].size * 2 || runLines[j].size > runLines[i].size * 2)
+                                     dtype = 'partial';       // one did much more
+      else                           dtype = 'diverged';      // mixed
+
+      pairs.push({ i, j, sim, fileSim, dtype });
       totalSim += sim;
       pairCount++;
     }
@@ -4581,30 +4707,53 @@ function renderRunCtxDiffSimilarity(comparison) {
     if (runFiles.every(s => s.has(f))) commonFiles++;
   }
 
-  // Color coding
-  let ringColor, label;
-  if (pct >= 70) { ringColor = 'var(--success)'; label = 'Agents wrote similar code — high confidence'; }
-  else if (pct >= 40) { ringColor = 'var(--warning)'; label = 'Agents diverge — check the differences'; }
-  else { ringColor = 'var(--error)'; label = 'Agents wrote completely different code'; }
+  // Determine overall divergence type from pair classifications
+  const dtypeCounts = {};
+  for (const p of pairs) dtypeCounts[p.dtype] = (dtypeCounts[p.dtype] || 0) + 1;
+  const primaryType = Object.entries(dtypeCounts).sort((a,b) => b[1]-a[1])[0]?.[0] || 'diverged';
+
+  // Color + label based on classified type, not just raw %
+  let ringColor, label, detail;
+  if (pct >= 70) {
+    ringColor = 'var(--success)';
+    label = 'High agreement';
+    detail = 'Agents converged on the same approach — high confidence';
+  } else if (primaryType === 'complementary') {
+    ringColor = 'var(--accent)';
+    label = 'Complementary changes';
+    detail = 'Agents fixed different parts of the problem — consensus can merge both';
+  } else if (primaryType === 'partial') {
+    ringColor = 'var(--warning)';
+    label = 'Partial overlap';
+    detail = 'One run was more thorough — consensus should take the broader fix';
+  } else if (primaryType === 'conflicting') {
+    ringColor = 'var(--error)';
+    label = 'Conflicting approaches';
+    detail = 'Agents edited the same files differently — may need human decision';
+  } else {
+    ringColor = 'var(--warning)';
+    label = 'Mixed signals';
+    detail = 'Agents diverged — review consensus output carefully';
+  }
 
   let html = '<div class="ctx-section">';
   html += '<div class="ctx-section-title">Code Consistency</div>';
 
   // Similarity ring
   html += `<div class="ctx-similarity-ring" style="border-color:${ringColor};color:${ringColor}">${pct}%</div>`;
-  html += `<div style="text-align:center;font-size:10px;color:${ringColor};font-weight:600;margin-bottom:var(--sp-3)">${label}</div>`;
+  html += `<div style="text-align:center;font-size:11px;color:${ringColor};font-weight:600;margin-bottom:4px">${label}</div>`;
+  html += `<div style="text-align:center;font-size:10px;color:var(--text-muted);margin-bottom:var(--sp-3);line-height:1.4;padding:0 8px">${detail}</div>`;
 
-  // Pairwise bars
+  // Pairwise bars with type badges
+  const dtypeLabel = {converged:'converged',complementary:'complementary',conflicting:'conflicting',partial:'partial',diverged:'diverged'};
+  const dtypeColor = {converged:'var(--success)',complementary:'var(--accent)',conflicting:'var(--error)',partial:'var(--warning)',diverged:'var(--warning)'};
   for (const p of pairs) {
     const simPct = Math.round(p.sim * 100);
-    let barColor;
-    if (simPct >= 70) barColor = 'var(--success)';
-    else if (simPct >= 40) barColor = 'var(--warning)';
-    else barColor = 'var(--error)';
+    const barColor = dtypeColor[p.dtype] || 'var(--warning)';
     html += `<div class="ctx-pairwise-bar">
       <span class="pw-label">R${p.i+1}:R${p.j+1}</span>
-      <div class="pw-track"><div class="pw-fill" style="width:${simPct}%;background:${barColor}"></div></div>
-      <span class="pw-pct">${simPct}%</span>
+      <div class="pw-track"><div class="pw-fill" style="width:${Math.max(simPct, 3)}%;background:${barColor}"></div></div>
+      <span class="pw-pct" style="color:${barColor}">${dtypeLabel[p.dtype]}</span>
     </div>`;
   }
 
@@ -4968,10 +5117,12 @@ function renderChatMessages(msgs, signal) {
       </div>
       <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">${esc(p.title || '')}</div>
       <div class="rp-desc">${esc(p.task_description || '')}</div>
-      <div class="rp-actions">
+      ${signal.run_id
+        ? `<div style="padding:8px 0 2px;display:flex;align-items:center;gap:6px;cursor:pointer" onclick="selectRun('${signal.run_id}')"><span style="font-size:11px;color:var(--accent);font-weight:600">View run \u2192</span><span style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono)">${signal.run_id.substring(0,8)}</span>${signal.status === 'running' ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:var(--accent-muted);color:var(--accent);font-weight:600;margin-left:auto">RUNNING</span>' : ''}${signal.status === 'done' ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(52,211,153,0.15);color:var(--success);font-weight:600;margin-left:auto">DONE</span>' : ''}${signal.status === 'failed' ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(240,112,112,0.15);color:var(--error);font-weight:600;margin-left:auto">FAILED</span>' : ''}</div>`
+        : `<div class="rp-actions">
         <button class="rp-btn rp-btn-go" onclick="createRunFromSignal('${signal.id}', true)">Run — auto-approve</button>
         <button class="rp-btn rp-btn-alt" onclick="createRunFromSignal('${signal.id}', false)">Run with checkpoints</button>
-      </div>
+      </div>`}
     </div>`;
   }
 
@@ -6364,6 +6515,15 @@ document.addEventListener('keydown', function(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
     e.preventDefault();
     toggleCommandPalette();
+  }
+});
+
+// Close user dropdown on click outside
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('user-dropdown');
+  const wrapper = document.getElementById('user-menu-wrapper');
+  if (dd && wrapper && !wrapper.contains(e.target)) {
+    dd.classList.remove('show');
   }
 });
 
