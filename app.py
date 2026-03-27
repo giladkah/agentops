@@ -57,6 +57,7 @@ def create_app(repo_path: str = None, api_key: str = None):
 
     def _get_or_create_local_user():
         """Auto-create/use a 'local-dev' user when GITHUB_CLIENT_ID is not set."""
+        import secrets as _secrets
         user = User.query.filter_by(github_id=0).first()
         if not user:
             user = User(
@@ -66,6 +67,10 @@ def create_app(repo_path: str = None, api_key: str = None):
                 anthropic_api_key=app.config.get("ANTHROPIC_API_KEY", ""),
             )
             db.session.add(user)
+            db.session.commit()
+        # Ensure token exists (may be NULL from migration)
+        if not user.ensemble_token:
+            user.ensemble_token = _secrets.token_urlsafe(32)
             db.session.commit()
         return user
 

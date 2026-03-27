@@ -91,7 +91,7 @@ jobs:
     <p style="margin-top:16px">Then add your <strong>ENSEMBLE_TOKEN</strong> as a GitHub repo secret (<em>Settings &rarr; Secrets &rarr; New repository secret</em>):</p>
     <label for="ensemble-token">Your Token</label>
     <div class="token-field">
-      <input type="text" id="ensemble-token" value="{{ user.ensemble_token }}" readonly>
+      <input type="text" id="ensemble-token" value="{{ user.ensemble_token or '' }}" readonly>
       <button class="copy-btn" onclick="copyToken()" style="position:static">Copy</button>
     </div>
   </div>
