@@ -71,7 +71,7 @@ input:focus{border-color:#818cf8}
       <div class="step-title">Add the GitHub Action to your repo</div>
     </div>
     <p>Copy this workflow file into <code>.github/workflows/ensemble.yml</code> in your repo:</p>
-    <div class="code-block" id="yaml-block"><button class="copy-btn" onclick="copyYaml()">Copy</button>name: Ensemble PR Review
+    <div class="code-block" id="yaml-block"><button class="copy-btn" onclick="copyYaml()">Copy</button>{% raw %}name: Ensemble PR Review
 on:
   pull_request:
     types: [opened, synchronize]
@@ -84,9 +84,9 @@ jobs:
       - uses: giladkah/agentops/action@main
         with:
           ensemble-url: https://app.ensemblecode.dev
-          ensemble-token: $&#123;&#123; secrets.ENSEMBLE_TOKEN &#125;&#125;
+          ensemble-token: ${{ secrets.ENSEMBLE_TOKEN }}
           workflow: 'Bug Fix'
-          post-results: comment</div>
+          post-results: comment{% endraw %}</div>
 
     <p style="margin-top:16px">Then add your <strong>ENSEMBLE_TOKEN</strong> as a GitHub repo secret (<em>Settings &rarr; Secrets &rarr; New repository secret</em>):</p>
     <label for="ensemble-token">Your Token</label>
