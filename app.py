@@ -104,7 +104,8 @@ def create_app(repo_path: str = None, api_key: str = None):
     def login():
         client_id = app.config["GITHUB_CLIENT_ID"]
         if not client_id:
-            return redirect("/")
+            next_url = request.args.get("next", "/")
+            return redirect(next_url)
         callback_url = url_for("auth_callback", _external=True)
         return redirect(
             f"https://github.com/login/oauth/authorize"

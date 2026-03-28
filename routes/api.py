@@ -4,6 +4,7 @@ API Routes — REST endpoints for the AgentOps dashboard.
 import re as _re
 import json
 import time
+import base64
 import threading
 import functools
 from datetime import datetime, timezone
@@ -1486,6 +1487,216 @@ def github_issue_detail(owner, repo, number):
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+
+# ── GitHub Auto-Install (one-click action + secret setup) ──
+
+def _github_api(token, method, url, json_body=None):
+    """Call the GitHub API with the user's OAuth token.
+
+    Returns (data, None) on success or (None, error_dict) on failure.
+    """
+    import requests as _requests
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    resp = _requests.request(method, url, headers=headers, json=json_body, timeout=15)
+    if resp.status_code == 403 and "rate limit" in resp.text.lower():
+        return None, {"error": "GitHub API rate limit exceeded — try again in a few minutes", "code": 403}
+    if resp.status_code == 409:
+        return None, {"error": "already_installed", "code": 409}
+    if not resp.ok:
+        msg = resp.json().get("message", resp.text[:200]) if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:200]
+        return None, {"error": f"GitHub API error: {msg}", "code": resp.status_code}
+    if resp.status_code == 204:
+        return {}, None
+    return resp.json(), None
+
+
+def _build_workflow_yaml():
+    """Return the ensemble GitHub Action workflow YAML as a plain string."""
+    return """name: Ensemble PR Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: giladkah/agentops/action@main
+        with:
+          ensemble-url: https://app.ensemblecode.dev
+          ensemble-token: ${{ secrets.ENSEMBLE_TOKEN }}
+          workflow: 'Bug Fix'
+          post-results: comment
+"""
+
+
+@api.route("/github/user-repos", methods=["GET"])
+@require_auth
+def github_user_repos():
+    """List repos the current user can push to (for the install dropdown)."""
+    token = g.current_user.github_token
+    if not token:
+        return jsonify({"error": "No GitHub token — please log out and log back in"}), 401
+
+    data, err = _github_api(token, "GET", "https://api.github.com/user/repos?per_page=100&sort=updated")
+    if err:
+        return jsonify(err), err.get("code", 500)
+
+    repos = [
+        {
+            "full_name": r["full_name"],
+            "name": r["name"],
+            "private": r["private"],
+            "default_branch": r.get("default_branch", "main"),
+        }
+        for r in data
+        if r.get("permissions", {}).get("push")
+    ]
+    return jsonify(repos)
+
+
+@api.route("/github/install", methods=["POST"])
+@require_auth
+def github_install():
+    """One-click install: commit workflow file + set ENSEMBLE_TOKEN secret."""
+    token = g.current_user.github_token
+    if not token:
+        return jsonify({"error": "No GitHub token — please log out and log back in"}), 401
+
+    body = request.json or {}
+    repo = body.get("repo", "").strip()
+    force = body.get("force", False)
+    if not repo or "/" not in repo:
+        return jsonify({"error": "repo is required (owner/repo)"}), 400
+
+    results = {"workflow": None, "secret": None}
+
+    # ── Step A: Commit the workflow file via Git Trees API ──
+    # (The Contents API returns 404 for .github/ paths on repos that don't
+    #  have that directory yet. The low-level Git Data API always works.)
+    file_path = ".github/workflows/ensemble.yml"
+    base_url = f"https://api.github.com/repos/{repo}"
+
+    # Check if file already exists (scan the tree)
+    tree_data, _ = _github_api(token, "GET", f"{base_url}/git/trees/HEAD?recursive=1")
+    existing_entry = None
+    if tree_data:
+        for entry in tree_data.get("tree", []):
+            if entry.get("path") == file_path:
+                existing_entry = entry
+                break
+    if existing_entry and not force:
+        return jsonify({
+            "error": "already_installed",
+            "message": f"{file_path} already exists in {repo}. Use force=true to overwrite.",
+        }), 409
+
+    yaml_content = _build_workflow_yaml()
+
+    # 1) Create blob
+    blob_data, blob_err = _github_api(token, "POST", f"{base_url}/git/blobs", json_body={
+        "content": yaml_content, "encoding": "utf-8",
+    })
+    if blob_err:
+        return jsonify({"error": f"Failed to create blob: {blob_err['error']}", "results": results}), blob_err.get("code", 500)
+
+    # 2) Get HEAD commit + its tree
+    ref_data, ref_err = _github_api(token, "GET", f"{base_url}/git/ref/heads/main")
+    if ref_err:
+        # Try 'master' as fallback
+        ref_data, ref_err = _github_api(token, "GET", f"{base_url}/git/ref/heads/master")
+    if ref_err:
+        return jsonify({"error": f"Failed to get branch ref: {ref_err['error']}", "results": results}), ref_err.get("code", 500)
+    head_sha = ref_data["object"]["sha"]
+    ref_url = f"{base_url}/git/refs/heads/{ref_data['ref'].split('/')[-1]}"
+
+    commit_data, _ = _github_api(token, "GET", f"{base_url}/git/commits/{head_sha}")
+    base_tree_sha = commit_data["tree"]["sha"]
+
+    # 3) Create new tree with the workflow file
+    new_tree, tree_err = _github_api(token, "POST", f"{base_url}/git/trees", json_body={
+        "base_tree": base_tree_sha,
+        "tree": [{"path": file_path, "mode": "100644", "type": "blob", "sha": blob_data["sha"]}],
+    })
+    if tree_err:
+        return jsonify({"error": f"Failed to create tree: {tree_err['error']}", "results": results}), tree_err.get("code", 500)
+
+    # 4) Create commit
+    new_commit, commit_err = _github_api(token, "POST", f"{base_url}/git/commits", json_body={
+        "message": "Add Ensemble PR Review workflow",
+        "tree": new_tree["sha"],
+        "parents": [head_sha],
+    })
+    if commit_err:
+        return jsonify({"error": f"Failed to create commit: {commit_err['error']}", "results": results}), commit_err.get("code", 500)
+
+    # 5) Update branch ref
+    _, update_err = _github_api(token, "PATCH", ref_url, json_body={"sha": new_commit["sha"]})
+    if update_err:
+        return jsonify({"error": f"Failed to update branch: {update_err['error']}", "results": results}), update_err.get("code", 500)
+
+    results["workflow"] = "committed"
+
+    # ── Step B: Set the ENSEMBLE_TOKEN repo secret ──
+    try:
+        from nacl.public import SealedBox, PublicKey
+
+        # Get the repo public key for secrets encryption
+        pk_url = f"https://api.github.com/repos/{repo}/actions/secrets/public-key"
+        pk_data, pk_err = _github_api(token, "GET", pk_url)
+        if pk_err:
+            results["secret"] = f"failed: {pk_err['error']}"
+            return jsonify({
+                "status": "partial",
+                "message": "Workflow committed but could not set secret — you may lack admin access.",
+                "manual_secret": True,
+                "ensemble_token": g.current_user.ensemble_token,
+                "results": results,
+            }), 200
+
+        # Encrypt the token with NaCl sealed box
+        public_key = PublicKey(base64.b64decode(pk_data["key"]))
+        sealed = SealedBox(public_key)
+        encrypted = sealed.encrypt(g.current_user.ensemble_token.encode())
+        encrypted_b64 = base64.b64encode(encrypted).decode()
+
+        secret_url = f"https://api.github.com/repos/{repo}/actions/secrets/ENSEMBLE_TOKEN"
+        _, sec_err = _github_api(token, "PUT", secret_url, json_body={
+            "encrypted_value": encrypted_b64,
+            "key_id": pk_data["key_id"],
+        })
+        if sec_err:
+            results["secret"] = f"failed: {sec_err['error']}"
+            return jsonify({
+                "status": "partial",
+                "message": "Workflow committed but could not set secret — you may lack admin access.",
+                "manual_secret": True,
+                "ensemble_token": g.current_user.ensemble_token,
+                "results": results,
+            }), 200
+
+        results["secret"] = "set"
+    except ImportError:
+        results["secret"] = "failed: pynacl not installed"
+        return jsonify({
+            "status": "partial",
+            "message": "Workflow committed but pynacl is not installed — set the secret manually.",
+            "manual_secret": True,
+            "ensemble_token": g.current_user.ensemble_token,
+            "results": results,
+        }), 200
+
+    return jsonify({
+        "status": "success",
+        "message": f"Ensemble installed in {repo}",
+        "results": results,
+    })
 
 
 # ── Stats ──

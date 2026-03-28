@@ -64,14 +64,40 @@ input:focus{border-color:#818cf8}
     <div class="success-msg" id="key-saved">Key saved.</div>
   </div>
 
-  <!-- Step 2: GitHub Action -->
+  <!-- Step 2: GitHub Action (auto-install or manual fallback) -->
   <div class="step" id="step2">
     <div class="step-header">
       <div class="step-num">2</div>
       <div class="step-title">Add the GitHub Action to your repo</div>
     </div>
-    <p>Copy this workflow file into <code>.github/workflows/ensemble.yml</code> in your repo:</p>
-    <div class="code-block" id="yaml-block"><button class="copy-btn" onclick="copyYaml()">Copy</button>{% raw %}name: Ensemble PR Review
+
+    <!-- No-token state: prompt to connect via GitHub OAuth -->
+    <div id="no-github" style="display:none">
+      <p>Connect your GitHub account to auto-install the workflow and secret in one click.</p>
+      <div style="margin:16px 0">
+        <a href="/login?next=/onboarding" class="btn btn-primary" style="text-decoration:none;width:100%;justify-content:center">Connect GitHub</a>
+      </div>
+      <p style="font-size:11px;color:rgba(113,113,122,0.7)">Or set up manually below.</p>
+    </div>
+
+    <!-- Auto-install UI (shown when GitHub token is available) -->
+    <div id="auto-install" style="display:none">
+      <p>Select a repo and we'll add the workflow file + secret automatically.</p>
+      <label for="repo-select">Repository</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="repo-select" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.07);background:rgba(12,12,14,1);color:rgba(236,236,241,0.92);font-size:13px;font-family:inherit;outline:none">
+          <option value="">Loading repos…</option>
+        </select>
+        <button class="btn btn-primary" id="install-btn" onclick="installAction()" disabled>Install</button>
+      </div>
+      <div id="install-status" style="margin-top:12px;font-size:12px;line-height:1.5"></div>
+    </div>
+
+    <!-- Manual fallback (always available, collapsed when auto-install is shown) -->
+    <details id="manual-fallback">
+      <summary style="cursor:pointer;font-size:13px;color:rgba(161,161,170,0.85);margin-bottom:12px;outline:none">Manual setup instructions</summary>
+      <p>Copy this workflow file into <code>.github/workflows/ensemble.yml</code> in your repo:</p>
+      <div class="code-block" id="yaml-block"><button class="copy-btn" onclick="copyYaml()">Copy</button>{% raw %}name: Ensemble PR Review
 on:
   pull_request:
     types: [opened, synchronize]
@@ -88,12 +114,13 @@ jobs:
           workflow: 'Bug Fix'
           post-results: comment{% endraw %}</div>
 
-    <p style="margin-top:16px">Then add your <strong>ENSEMBLE_TOKEN</strong> as a GitHub repo secret (<em>Settings &rarr; Secrets &rarr; New repository secret</em>):</p>
-    <label for="ensemble-token">Your Token</label>
-    <div class="token-field">
-      <input type="text" id="ensemble-token" value="{{ user.ensemble_token or '' }}" readonly>
-      <button class="copy-btn" onclick="copyToken()" style="position:static">Copy</button>
-    </div>
+      <p style="margin-top:16px">Then add your <strong>ENSEMBLE_TOKEN</strong> as a GitHub repo secret (<em>Settings &rarr; Secrets &rarr; New repository secret</em>):</p>
+      <label for="ensemble-token">Your Token</label>
+      <div class="token-field">
+        <input type="text" id="ensemble-token" value="{{ user.ensemble_token or '' }}" readonly>
+        <button class="copy-btn" onclick="copyToken()" style="position:static">Copy</button>
+      </div>
+    </details>
   </div>
 
   <div class="btn-row" style="justify-content:center">
@@ -117,7 +144,6 @@ async function saveApiKey() {
 }
 
 function copyYaml() {
-  // Get raw YAML text (decode HTML entities)
   const raw = `name: Ensemble PR Review
 on:
   pull_request:
@@ -145,6 +171,124 @@ function copyToken() {
   event.target.textContent = 'Copied!';
   setTimeout(() => event.target.textContent = 'Copy', 1500);
 }
+
+/* ── Auto-install logic ── */
+
+async function loadRepos() {
+  const autoEl = document.getElementById('auto-install');
+  const manualEl = document.getElementById('manual-fallback');
+  const noGithub = document.getElementById('no-github');
+  try {
+    const resp = await fetch('/api/github/user-repos');
+    if (!resp.ok) {
+      // No GitHub token — show Connect GitHub button + manual fallback
+      noGithub.style.display = 'block';
+      manualEl.open = true;
+      return;
+    }
+    const repos = await resp.json();
+    if (!repos.length) {
+      manualEl.open = true;
+      return;
+    }
+
+    // Populate dropdown
+    const sel = document.getElementById('repo-select');
+    sel.innerHTML = '<option value="">Select a repository…</option>';
+    repos.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.full_name;
+      opt.textContent = r.full_name + (r.private ? ' 🔒' : '');
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => {
+      document.getElementById('install-btn').disabled = !sel.value;
+    });
+
+    // Show auto-install UI
+    autoEl.style.display = 'block';
+  } catch {
+    manualEl.open = true;
+  }
+}
+
+async function installAction() {
+  const sel = document.getElementById('repo-select');
+  const btn = document.getElementById('install-btn');
+  const status = document.getElementById('install-status');
+  const repo = sel.value;
+  if (!repo) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Installing…';
+  status.innerHTML = '<span style="color:rgba(161,161,170,0.85)">⏳ Committing workflow and setting secret…</span>';
+
+  try {
+    const resp = await fetch('/api/github/install', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({repo}),
+    });
+    const data = await resp.json();
+
+    if (resp.status === 409 && data.error === 'already_installed') {
+      status.innerHTML = `<span style="color:#fbbf24">⚠️ Workflow already exists in ${repo}.</span>
+        <button class="btn btn-secondary" style="margin-left:8px;padding:6px 14px;font-size:12px" onclick="reinstall('${repo}')">Reinstall</button>`;
+      btn.textContent = 'Install';
+      btn.disabled = false;
+      return;
+    }
+
+    if (data.status === 'success') {
+      status.innerHTML = '<span style="color:#4ade80">✅ Installed! Workflow file committed and ENSEMBLE_TOKEN secret set.</span>';
+      btn.textContent = 'Installed';
+    } else if (data.status === 'partial') {
+      status.innerHTML = `<span style="color:#fbbf24">⚠️ ${data.message}</span>
+        <br><span style="color:rgba(161,161,170,0.85);font-size:11px">Add ENSEMBLE_TOKEN manually: <code>${data.ensemble_token}</code></span>`;
+      btn.textContent = 'Install';
+      btn.disabled = false;
+    } else {
+      status.innerHTML = `<span style="color:#f87171">❌ ${data.error || 'Unknown error'}</span>`;
+      btn.textContent = 'Install';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    status.innerHTML = `<span style="color:#f87171">❌ Network error — check your connection</span>`;
+    btn.textContent = 'Install';
+    btn.disabled = false;
+  }
+}
+
+async function reinstall(repo) {
+  const btn = document.getElementById('install-btn');
+  const status = document.getElementById('install-status');
+
+  btn.disabled = true;
+  status.innerHTML = '<span style="color:rgba(161,161,170,0.85)">⏳ Reinstalling…</span>';
+
+  const resp = await fetch('/api/github/install', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({repo, force: true}),
+  });
+  const data = await resp.json();
+  if (data.status === 'success') {
+    status.innerHTML = '<span style="color:#4ade80">✅ Reinstalled! Workflow updated and secret refreshed.</span>';
+    btn.textContent = 'Installed';
+  } else if (data.status === 'partial') {
+    status.innerHTML = `<span style="color:#fbbf24">⚠️ ${data.message}</span>
+      <br><span style="color:rgba(161,161,170,0.85);font-size:11px">Add ENSEMBLE_TOKEN manually: <code>${data.ensemble_token}</code></span>`;
+    btn.textContent = 'Install';
+    btn.disabled = false;
+  } else {
+    status.innerHTML = `<span style="color:#f87171">❌ ${data.error || 'Unknown error'}</span>`;
+    btn.textContent = 'Install';
+    btn.disabled = false;
+  }
+}
+
+// Load repos on page load
+loadRepos();
 </script>{% endraw %}
 </body>
 </html>
