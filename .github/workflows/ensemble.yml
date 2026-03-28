@@ -1,0 +1,16 @@
+name: Ensemble PR Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: giladkah/agentops/action@main
+        with:
+          ensemble-url: https://app.ensemblecode.dev
+          ensemble-token: ${{ secrets.ENSEMBLE_TOKEN }}
+          workflow: 'Bug Fix'
+          post-results: comment
